@@ -127,6 +127,8 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
         if result.cost_usd > 0:
             log(project_name, f"Task cost: ${result.cost_usd:.4f}", "💰")
 
+        new_attempts = task.attempts + 1
+
         if result.success:
             updated_manifest = load_manifest(project_path)
             if updated_manifest:
@@ -141,9 +143,11 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
                     log(project_name,
                         "Worker finished but task not marked done — treating as incomplete",
                         "⚠️")
-                    task.attempts += 1
-                    update_task_status(manifest, task.id, "pending",
-                                      "Worker completed without marking task done")
+                    update_task_status(
+                        manifest, task.id, "pending",
+                        error="Worker completed without marking task done",
+                        attempts=new_attempts,
+                    )
                     manifest = load_manifest(project_path) or manifest
             else:
                 log(project_name, "Could not reload manifest after task", "❌")
@@ -152,16 +156,21 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
             error_msg = result.error or "Unknown error"
             log(project_name, f"Task failed: {error_msg[:100]}", "❌")
 
-            task.attempts += 1
-            if task.attempts >= manifest.max_task_attempts:
-                update_task_status(manifest, task.id, "failed", error_msg)
+            if new_attempts >= manifest.max_task_attempts:
+                update_task_status(
+                    manifest, task.id, "failed",
+                    error=error_msg, attempts=new_attempts,
+                )
                 log(project_name,
                     f"Task \"{task.title}\" exceeded {manifest.max_task_attempts} attempts — marking failed",
                     "🛑")
             else:
-                update_task_status(manifest, task.id, "pending", error_msg)
+                update_task_status(
+                    manifest, task.id, "pending",
+                    error=error_msg, attempts=new_attempts,
+                )
                 log(project_name,
-                    f"Will retry ({task.attempts}/{manifest.max_task_attempts})",
+                    f"Will retry ({new_attempts}/{manifest.max_task_attempts})",
                     "🔄")
 
             manifest = load_manifest(project_path) or manifest

@@ -62,14 +62,19 @@ def parse_tasks(content: str) -> list[Task]:
         task_id = meta.get("id", slugify(title_clean))
         depends_str = meta.get("depends", "")
         depends = [d.strip() for d in depends_str.split(",") if d.strip()] if depends_str else []
+        attempts = int(meta.get("attempts", "0"))
 
         status = "done" if checkbox == "x" else "pending"
+        # Preserve failed status from inline metadata
+        if meta.get("status") == "failed":
+            status = "failed"
 
         tasks.append(Task(
             id=task_id,
             title=title_clean,
             status=status,
             depends=depends,
+            attempts=attempts,
             line_number=line_number,
         ))
 
@@ -102,9 +107,17 @@ def load_manifest(path: Path) -> Manifest | None:
 
 
 def update_task_status(
-    manifest: Manifest, task_id: str, new_status: str, error: str | None = None
+    manifest: Manifest,
+    task_id: str,
+    new_status: str,
+    error: str | None = None,
+    attempts: int | None = None,
 ) -> None:
-    """Update a task's status in the manifest file on disk."""
+    """Update a task's status in the manifest file on disk.
+
+    Persists status, error, and attempt count as inline metadata so they
+    survive manifest reloads.
+    """
     content = manifest.path.read_text(encoding="utf-8")
     lines = content.split("\n")
 
@@ -131,19 +144,26 @@ def update_task_status(
             indent = checkbox_match.group(1)
             mark = "x" if new_status == "done" else " "
 
+            # Strip old status/error/attempts metadata
             title_part = re.sub(r"\s*\[status:\s*[^\]]+\]", "", raw_title)
             title_part = re.sub(r"\s*\[error:\s*[^\]]+\]", "", title_part)
+            title_part = re.sub(r"\s*\[attempts:\s*[^\]]+\]", "", title_part)
 
+            # Append updated metadata
+            if attempts is not None and attempts > 0:
+                title_part += f" [attempts: {attempts}]"
             if new_status == "failed" and error:
                 short_error = error[:120].replace("\n", " ").replace("]", ")")
                 title_part += f" [status: failed] [error: {short_error}]"
 
             lines[i] = f"{indent}- [{mark}] {title_part}"
 
+            # Update in-memory task
             task.status = new_status
             if error:
                 task.last_error = error
-                task.attempts += 1
+            if attempts is not None:
+                task.attempts = attempts
             break
         break
 

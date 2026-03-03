@@ -1,5 +1,6 @@
 """Prompt builders for judge and worker agents."""
 
+import re
 import textwrap
 
 from .manifest import MANIFEST_PATH
@@ -82,8 +83,6 @@ def build_worker_prompt(manifest: Manifest, task: Task) -> str:
 
 def parse_judge_result(output: str) -> tuple[bool, str]:
     """Parse the judge agent's verdict and feedback."""
-    import re
-
     is_ready = "VERDICT: READY" in output and "VERDICT: NOT_READY" not in output
 
     feedback = output

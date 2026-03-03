@@ -37,6 +37,9 @@ async def run_agent(
     if agent_config.model:
         options.model = agent_config.model
 
+    # Pick up project-level .claude/ config if present
+    options.setting_sources = ["project"]
+
     output_parts: list[str] = []
     total_cost = 0.0
 

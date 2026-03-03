@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import importlib.resources
 import sys
 from pathlib import Path
 
@@ -9,7 +10,10 @@ from .log import log, log_header
 from .manifest import MANIFEST_PATH, discover_projects, get_task_summary, load_manifest
 from .orchestrator import process_project
 
-AGENTS_DIR = Path(__file__).resolve().parent.parent.parent / "agents"
+
+def _default_agents_dir() -> Path:
+    """Resolve the bundled agents directory using importlib.resources."""
+    return Path(str(importlib.resources.files("autopilot") / "agents"))
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,7 +35,7 @@ def parse_args() -> argparse.Namespace:
         "--agents-dir",
         type=Path,
         default=None,
-        help=f"Directory containing agent role configs (default: {AGENTS_DIR})",
+        help="Directory containing agent role configs (default: bundled agents)",
     )
     parser.add_argument(
         "--dry-run",
@@ -43,7 +47,7 @@ def parse_args() -> argparse.Namespace:
 
 async def async_main() -> None:
     args = parse_args()
-    agents_dir = args.agents_dir or AGENTS_DIR
+    agents_dir = args.agents_dir or _default_agents_dir()
 
     project_paths: list[Path] = []
 
