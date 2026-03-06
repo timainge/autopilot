@@ -16,7 +16,7 @@ from .manifest import (
     get_task_summary,
     load_manifest,
 )
-from .orchestrator import process_project, research_project
+from .orchestrator import build_portfolio, process_project, research_project
 
 
 def _default_agents_dir() -> Path:
@@ -51,9 +51,14 @@ def parse_args() -> argparse.Namespace:
         help="Run the researcher agent to analyze projects instead of processing tasks",
     )
     parser.add_argument(
+        "--portfolio",
+        action="store_true",
+        help="Build a portfolio overview of all scanned projects",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
-        help="Include all projects in research mode (don't skip forks/clones)",
+        help="Include all projects in research/portfolio mode (don't skip forks/clones)",
     )
     parser.add_argument(
         "--dry-run",
@@ -69,9 +74,15 @@ async def async_main() -> None:
 
     project_paths: list[Path] = []
 
+    broad_mode = args.research or args.portfolio
+
+    if args.portfolio and not args.scan and not args.projects:
+        print("  --portfolio requires --scan or explicit project paths.")
+        sys.exit(1)
+
     if args.scan:
         scan_root = args.scan.expanduser().resolve()
-        if args.research:
+        if broad_mode:
             project_paths = discover_all_projects(scan_root)
             if not project_paths:
                 print(f"  No project directories found under {args.scan}")
@@ -93,9 +104,9 @@ async def async_main() -> None:
             print(f"  No {MANIFEST_PATH} in current directory. Provide paths or use --scan.")
             sys.exit(1)
 
-    # Filter non-owned repos in research scan mode (unless --all)
+    # Filter non-owned repos in research/portfolio scan mode (unless --all)
     skipped: list[tuple[Path, str]] = []
-    if args.research and args.scan and not getattr(args, "all"):
+    if broad_mode and args.scan and not getattr(args, "all"):
         git_user = detect_git_user()
         if git_user:
             owned: list[Path] = []
@@ -114,8 +125,13 @@ async def async_main() -> None:
                 "       git config --global autopilot.user <username>\n"
             )
 
-    mode = "Research" if args.research else "Autopilot"
-    log_header(f"{mode} — {len(project_paths)} project(s)")
+    if args.portfolio:
+        mode_label = "Portfolio"
+    elif args.research:
+        mode_label = "Research"
+    else:
+        mode_label = "Autopilot"
+    log_header(f"{mode_label} — {len(project_paths)} project(s)")
 
     if skipped:
         print(f"  Skipped {len(skipped)} non-owned repo(s) (use --all to include):")
@@ -124,11 +140,13 @@ async def async_main() -> None:
         print()
 
     if args.dry_run:
-        mode = "research" if args.research else "process"
-        print(f"  [DRY RUN MODE — no agents will be executed ({mode})]\n")
+        dry_label = mode_label.lower()
+        print(f"  [DRY RUN MODE — no agents will be executed ({dry_label})]\n")
         for path in project_paths:
-            if args.research:
-                print(f"  {path.name}: would research")
+            if broad_mode:
+                has_summary = (path / ".dev" / "research" / "summary.md").exists()
+                tag = "has summary" if has_summary else "no summary"
+                print(f"  {path.name}: would {dry_label} ({tag})")
             else:
                 manifest = load_manifest(path)
                 if manifest:
@@ -141,16 +159,20 @@ async def async_main() -> None:
                     print(f"  {path.name}: no manifest")
         return
 
-    for project_path in project_paths:
-        if not project_path.is_dir():
-            log(str(project_path), "Not a directory — skipping", "⏭️")
-            continue
-        if args.research:
-            await research_project(project_path, agents_dir)
-        else:
-            await process_project(project_path, agents_dir)
+    if args.portfolio:
+        scan_root = args.scan.expanduser().resolve() if args.scan else project_paths[0].parent
+        await build_portfolio(scan_root, project_paths, agents_dir)
+    else:
+        for project_path in project_paths:
+            if not project_path.is_dir():
+                log(str(project_path), "Not a directory — skipping", "⏭️")
+                continue
+            if args.research:
+                await research_project(project_path, agents_dir)
+            else:
+                await process_project(project_path, agents_dir)
 
-    log_header("Autopilot — complete")
+    log_header(f"{mode_label} — complete")
 
 
 def main() -> None:

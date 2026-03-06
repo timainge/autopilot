@@ -96,6 +96,41 @@ def build_researcher_prompt(project_path: Path) -> str:
     """)
 
 
+def build_portfolio_prompt(scan_dir: Path, project_paths: list[Path]) -> str:
+    """Build the prompt for the portfolio agent."""
+    with_summary = []
+    without_summary = []
+    for p in project_paths:
+        if (p / ".dev" / "research" / "summary.md").exists():
+            with_summary.append(p.name)
+        else:
+            without_summary.append(p.name)
+
+    lines = [
+        f"Analyze the projects under `{scan_dir}` and build a portfolio overview.",
+        f"Write the output to `{scan_dir}/.dev/portfolio.md`.",
+        "",
+        f"Total projects: {len(project_paths)}",
+        "",
+    ]
+
+    if with_summary:
+        lines.append(f"Projects WITH research summaries ({len(with_summary)}):")
+        for name in with_summary:
+            lines.append(f"  - {name} (read {name}/.dev/research/summary.md)")
+        lines.append("")
+
+    if without_summary:
+        lines.append(
+            f"Projects WITHOUT summaries ({len(without_summary)}) — do a quick assessment:"
+        )
+        for name in without_summary:
+            lines.append(f"  - {name}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def parse_judge_result(output: str) -> tuple[bool, str]:
     """Parse the judge agent's verdict and feedback."""
     is_ready = "VERDICT: READY" in output and "VERDICT: NOT_READY" not in output

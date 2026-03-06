@@ -11,6 +11,7 @@ Autopilot is an autonomous project session orchestrator. It reads project manife
 All autopilot working files within a project live under `.dev/`:
 - `.dev/autopilot.md` — project manifest (tasks, config, plan)
 - `.dev/research/summary.md` — researcher agent output
+- `<scan_dir>/.dev/portfolio.md` — portfolio agent output
 - Projects should add `.dev/` to their `.gitignore`
 
 ## Development Commands
@@ -25,6 +26,7 @@ autopilot --scan ~/Projects             # Auto-discover projects
 autopilot --scan ~/Projects --dry-run   # Preview only
 autopilot --research /path/to/project   # Research a project
 autopilot --research --scan ~/Projects  # Research all projects
+autopilot --portfolio --scan ~/Projects # Portfolio overview
 python -m autopilot                     # Alternative entry point
 
 # Lint

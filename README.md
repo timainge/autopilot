@@ -128,7 +128,24 @@ git config --global autopilot.user yourusername
 # or have the gh CLI logged in (auto-detected)
 ```
 
-### 5. Process multiple projects
+### 5. Build a portfolio overview
+
+After researching projects (or even without), build a cross-project overview
+with an index table, analysis by tech stack/state/recommendation, and
+prioritized quick wins:
+
+```bash
+# Portfolio of all your projects
+autopilot --portfolio --scan ~/Projects
+
+# Preview
+autopilot --portfolio --scan ~/Projects --dry-run
+```
+
+Output is written to `<scan_dir>/.dev/portfolio.md`. Projects with existing
+research summaries are indexed from those; the rest get a quick assessment.
+
+### 6. Process multiple projects
 
 ```bash
 # Explicit paths
@@ -199,6 +216,7 @@ defines a role's system prompt and SDK options.
 - **worker** — executes tasks: reads context, implements, tests, commits
 - **planner** — creates or improves task plans (invoke manually)
 - **researcher** — analyzes a project and writes a research summary with recommendations
+- **portfolio** — builds a cross-project portfolio overview with index table and synthesis
 
 ### Custom Roles
 

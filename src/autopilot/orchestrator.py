@@ -14,10 +14,44 @@ from .manifest import (
 )
 from .prompts import (
     build_judge_prompt,
+    build_portfolio_prompt,
     build_researcher_prompt,
     build_worker_prompt,
     parse_judge_result,
 )
+
+
+async def build_portfolio(
+    scan_dir: Path, project_paths: list[Path], agents_dir: Path,
+) -> None:
+    """Run the portfolio agent to create a cross-project overview."""
+    try:
+        portfolio_config = load_agent_config("portfolio", agents_dir)
+    except FileNotFoundError:
+        log("portfolio", "No portfolio agent config found", "❌")
+        return
+
+    with_summary = sum(
+        1 for p in project_paths
+        if (p / ".dev" / "research" / "summary.md").exists()
+    )
+    log(
+        "portfolio",
+        f"Analyzing {len(project_paths)} projects "
+        f"({with_summary} with research summaries)...",
+        "📊",
+    )
+
+    prompt = build_portfolio_prompt(scan_dir, project_paths)
+    result = await run_agent(portfolio_config, scan_dir, prompt)
+
+    if result.success:
+        log("portfolio", f"Portfolio complete — see {scan_dir}/.dev/portfolio.md", "✅")
+    else:
+        log("portfolio", f"Portfolio failed: {result.error}", "❌")
+
+    if result.cost_usd > 0:
+        log("portfolio", f"Portfolio cost: ${result.cost_usd:.4f}", "💰")
 
 
 async def research_project(project_path: Path, agents_dir: Path) -> None:
