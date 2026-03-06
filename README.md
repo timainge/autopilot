@@ -41,9 +41,15 @@ uv pip install -e .
 pip install claude-agent-sdk pyyaml
 ```
 
-The Agent SDK bundles the Claude Code CLI. You need an Anthropic API key:
+The Agent SDK bundles the Claude Code CLI. You need one of:
+
 ```bash
+# Option 1: API key (pay-per-token billing)
 export ANTHROPIC_API_KEY=your-key-here
+
+# Option 2: Claude Code subscription (Max/Pro plan billing)
+claude setup-token
+export CLAUDE_CODE_OAUTH_TOKEN=<token from above>
 ```
 
 ## Quick Start
@@ -91,7 +97,38 @@ autopilot /path/to/your/project
 
 With `approved: true`, autopilot starts executing tasks sequentially.
 
-### 4. Process multiple projects
+### 4. Research projects
+
+Before creating a manifest, you can run the researcher agent to analyze a project
+and get a recommendation (finish & launch, archive, blog post, etc.):
+
+```bash
+# Research a single project
+autopilot --research /path/to/project
+
+# Research all projects in a directory (skips forks/clones by default)
+autopilot --research --scan ~/Projects
+
+# Include forks and cloned repos
+autopilot --research --all --scan ~/Projects
+
+# Preview which projects would be researched
+autopilot --research --scan ~/Projects --dry-run
+```
+
+Results are written to `.dev/research/summary.md` in each project.
+
+When scanning, forks and cloned repos are skipped by comparing the git remote
+owner against your username. Set your username via (checked in this order):
+
+```bash
+export AUTOPILOT_GIT_USER=yourusername
+# or
+git config --global autopilot.user yourusername
+# or have the gh CLI logged in (auto-detected)
+```
+
+### 5. Process multiple projects
 
 ```bash
 # Explicit paths
@@ -161,6 +198,7 @@ defines a role's system prompt and SDK options.
 - **judge** — evaluates manifest readiness, suggests improvements
 - **worker** — executes tasks: reads context, implements, tests, commits
 - **planner** — creates or improves task plans (invoke manually)
+- **researcher** — analyzes a project and writes a research summary with recommendations
 
 ### Custom Roles
 

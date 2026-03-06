@@ -12,7 +12,36 @@ from .manifest import (
     update_manifest_frontmatter,
     update_task_status,
 )
-from .prompts import build_judge_prompt, build_worker_prompt, parse_judge_result
+from .prompts import (
+    build_judge_prompt,
+    build_researcher_prompt,
+    build_worker_prompt,
+    parse_judge_result,
+)
+
+
+async def research_project(project_path: Path, agents_dir: Path) -> None:
+    """Run the researcher agent on a single project."""
+    project_name = project_path.name
+
+    try:
+        researcher_config = load_agent_config("researcher", agents_dir)
+    except FileNotFoundError:
+        log(project_name, "No researcher agent config found — skipping", "❌")
+        return
+
+    log(project_name, "Running project research...", "🔬")
+
+    prompt = build_researcher_prompt(project_path)
+    result = await run_agent(researcher_config, project_path, prompt)
+
+    if result.success:
+        log(project_name, "Research complete — see .dev/research/summary.md", "✅")
+    else:
+        log(project_name, f"Research failed: {result.error}", "❌")
+
+    if result.cost_usd > 0:
+        log(project_name, f"Research cost: ${result.cost_usd:.4f}", "💰")
 
 
 async def process_project(project_path: Path, agents_dir: Path) -> None:

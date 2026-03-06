@@ -1,6 +1,8 @@
 """Manifest parsing, loading, and writing."""
 
+import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -251,3 +253,86 @@ def discover_projects(scan_dir: Path) -> list[Path]:
         if child.is_dir() and (child / MANIFEST_DIR / MANIFEST_FILENAME).exists():
             projects.append(child)
     return projects
+
+
+# Markers that indicate a directory is a software project
+_PROJECT_MARKERS = (
+    ".git", "package.json", "pyproject.toml", "Cargo.toml", "go.mod",
+    "Makefile", "CMakeLists.txt", "build.gradle", "pom.xml", "Gemfile",
+    "requirements.txt", "setup.py", "composer.json", "mix.exs",
+)
+
+
+def discover_all_projects(scan_dir: Path) -> list[Path]:
+    """Find all project-like directories under scan_dir (for research mode)."""
+    projects = []
+    for child in sorted(scan_dir.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        if any((child / marker).exists() for marker in _PROJECT_MARKERS):
+            projects.append(child)
+    return projects
+
+
+def _run_cmd(args: list[str], timeout: int = 5) -> str | None:
+    """Run a command and return stripped stdout, or None on failure."""
+    try:
+        result = subprocess.run(
+            args, capture_output=True, text=True, timeout=timeout,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def detect_git_user() -> str | None:
+    """Detect the git hosting username.
+
+    Checks in order:
+    1. AUTOPILOT_GIT_USER env var
+    2. git config --global autopilot.user
+    3. gh CLI (best effort, not required)
+    """
+    user = os.environ.get("AUTOPILOT_GIT_USER")
+    if user:
+        return user
+
+    user = _run_cmd(["git", "config", "--global", "autopilot.user"])
+    if user:
+        return user
+
+    user = _run_cmd(["gh", "api", "user", "-q", ".login"], timeout=10)
+    if user:
+        return user
+
+    return None
+
+
+def get_repo_owner(project_path: Path) -> str | None:
+    """Extract the owner from a project's git remote origin URL.
+
+    Handles SSH (git@host:owner/repo), HTTPS (https://host/owner/repo),
+    and SSH protocol (ssh://git@host/owner/repo) formats for any host.
+    """
+    url = _run_cmd(["git", "-C", str(project_path), "remote", "get-url", "origin"])
+    if not url:
+        return None
+
+    # SSH: git@github.com:owner/repo.git
+    match = re.match(r"git@[^:]+:([^/]+)/", url)
+    if match:
+        return match.group(1)
+
+    # HTTPS: https://github.com/owner/repo.git
+    match = re.match(r"https?://[^/]+/([^/]+)/", url)
+    if match:
+        return match.group(1)
+
+    # SSH with protocol: ssh://git@github.com/owner/repo.git
+    match = re.match(r"ssh://[^/]+/([^/]+)/", url)
+    if match:
+        return match.group(1)
+
+    return None

@@ -1,7 +1,8 @@
-"""Prompt builders for judge and worker agents."""
+"""Prompt builders for judge, worker, and researcher agents."""
 
 import re
 import textwrap
+from pathlib import Path
 
 from .manifest import MANIFEST_PATH
 from .models import Manifest, Task
@@ -78,6 +79,20 @@ def build_worker_prompt(manifest: Manifest, task: Task) -> str:
         - If you encounter a blocking issue, describe it clearly and stop
         - Make atomic, well-tested commits
         - Do not modify other tasks' checkboxes
+    """)
+
+
+def build_researcher_prompt(project_path: Path) -> str:
+    """Build the prompt for the researcher agent."""
+    return textwrap.dedent(f"""\
+        Analyze the project at `{project_path}`.
+
+        Explore the codebase, git history, dependencies, and documentation to
+        understand what this project is, its current state, and its potential.
+
+        Write your findings to `.dev/research/summary.md` following the format
+        described in your system prompt. Create the `.dev/research/` directory
+        if it doesn't exist.
     """)
 
 

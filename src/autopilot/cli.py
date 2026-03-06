@@ -7,8 +7,16 @@ import sys
 from pathlib import Path
 
 from .log import log, log_header
-from .manifest import MANIFEST_PATH, discover_projects, get_task_summary, load_manifest
-from .orchestrator import process_project
+from .manifest import (
+    MANIFEST_PATH,
+    detect_git_user,
+    discover_all_projects,
+    discover_projects,
+    get_repo_owner,
+    get_task_summary,
+    load_manifest,
+)
+from .orchestrator import process_project, research_project
 
 
 def _default_agents_dir() -> Path:
@@ -38,6 +46,16 @@ def parse_args() -> argparse.Namespace:
         help="Directory containing agent role configs (default: bundled agents)",
     )
     parser.add_argument(
+        "--research",
+        action="store_true",
+        help="Run the researcher agent to analyze projects instead of processing tasks",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Include all projects in research mode (don't skip forks/clones)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be done without executing agents",
@@ -52,38 +70,85 @@ async def async_main() -> None:
     project_paths: list[Path] = []
 
     if args.scan:
-        project_paths = discover_projects(args.scan.expanduser().resolve())
-        if not project_paths:
-            print(f"  No projects with {MANIFEST_PATH} found under {args.scan}")
-            sys.exit(0)
+        scan_root = args.scan.expanduser().resolve()
+        if args.research:
+            project_paths = discover_all_projects(scan_root)
+            if not project_paths:
+                print(f"  No project directories found under {args.scan}")
+                sys.exit(0)
+        else:
+            project_paths = discover_projects(scan_root)
+            if not project_paths:
+                print(f"  No projects with {MANIFEST_PATH} found under {args.scan}")
+                sys.exit(0)
     elif args.projects:
         project_paths = [Path(p).expanduser().resolve() for p in args.projects]
     else:
         cwd = Path.cwd()
-        if (cwd / ".dev" / "autopilot.md").exists():
+        if args.research:
+            project_paths = [cwd]
+        elif (cwd / ".dev" / "autopilot.md").exists():
             project_paths = [cwd]
         else:
             print(f"  No {MANIFEST_PATH} in current directory. Provide paths or use --scan.")
             sys.exit(1)
 
-    log_header(f"Autopilot — {len(project_paths)} project(s)")
+    # Filter non-owned repos in research scan mode (unless --all)
+    skipped: list[tuple[Path, str]] = []
+    if args.research and args.scan and not getattr(args, "all"):
+        git_user = detect_git_user()
+        if git_user:
+            owned: list[Path] = []
+            for p in project_paths:
+                owner = get_repo_owner(p)
+                if owner is None or owner.lower() == git_user.lower():
+                    owned.append(p)
+                else:
+                    skipped.append((p, owner))
+            project_paths = owned
+        else:
+            print(
+                "  ⚠️  Git user not detected — including all projects.\n"
+                "     To filter forks, set one of:\n"
+                "       export AUTOPILOT_GIT_USER=<username>\n"
+                "       git config --global autopilot.user <username>\n"
+            )
+
+    mode = "Research" if args.research else "Autopilot"
+    log_header(f"{mode} — {len(project_paths)} project(s)")
+
+    if skipped:
+        print(f"  Skipped {len(skipped)} non-owned repo(s) (use --all to include):")
+        for p, owner in skipped:
+            print(f"    {p.name} (owner: {owner})")
+        print()
 
     if args.dry_run:
-        print("  [DRY RUN MODE — no agents will be executed]\n")
+        mode = "research" if args.research else "process"
+        print(f"  [DRY RUN MODE — no agents will be executed ({mode})]\n")
         for path in project_paths:
-            manifest = load_manifest(path)
-            if manifest:
-                status = "approved" if manifest.approved else "needs review"
-                print(f"  {path.name}: {manifest.name} — {status} — {get_task_summary(manifest)}")
+            if args.research:
+                print(f"  {path.name}: would research")
             else:
-                print(f"  {path.name}: no manifest")
+                manifest = load_manifest(path)
+                if manifest:
+                    status = "approved" if manifest.approved else "needs review"
+                    print(
+                        f"  {path.name}: {manifest.name}"
+                        f" — {status} — {get_task_summary(manifest)}"
+                    )
+                else:
+                    print(f"  {path.name}: no manifest")
         return
 
     for project_path in project_paths:
         if not project_path.is_dir():
             log(str(project_path), "Not a directory — skipping", "⏭️")
             continue
-        await process_project(project_path, agents_dir)
+        if args.research:
+            await research_project(project_path, agents_dir)
+        else:
+            await process_project(project_path, agents_dir)
 
     log_header("Autopilot — complete")
 
