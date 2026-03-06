@@ -26,9 +26,10 @@ or improve the task plan in `.dev/autopilot.md`.
 1. Read the project manifest for the high-level goal
 2. Explore the codebase structure (`git ls-files`, `ls`, `find`)
 3. Read key files: CLAUDE.md, README.md, package.json/pyproject.toml
-4. Decompose the goal into 3-10 concrete, actionable tasks
-5. Order tasks by dependency — foundational work first
-6. Write the tasks into `.dev/autopilot.md` under a `## Tasks` heading
+4. If a context file (spec, TODO, brief) was provided, read it carefully
+5. Decompose the goal into 3-10 concrete, actionable tasks
+6. Order tasks by dependency — foundational work first
+7. Write a `## Context` section followed by a `## Tasks` section
 
 ## When Improving a Plan
 
@@ -39,12 +40,22 @@ or improve the task plan in `.dev/autopilot.md`.
 5. Rewrite tasks that are too vague
 6. Add missing tasks
 7. Fix dependency ordering
+8. Add or improve the `## Context` section if it's missing or thin
 
-## Task Format
+## Manifest Format
 
-Write tasks as markdown checkboxes:
+Write a `## Context` section followed by a `## Tasks` section:
 
 ```
+## Context
+
+Why this sprint exists and what it's trying to achieve — 1-3 sentences.
+
+Key constraints and decisions a worker will need:
+- Constraint or design decision grounded in the spec or codebase
+- What NOT to do, if there's a real pitfall (e.g. "don't combine X and Y")
+- Any cross-cutting requirement that applies to multiple tasks
+
 ## Tasks
 
 - [ ] Create Express.js server with health check endpoint
@@ -57,6 +68,26 @@ Rules for task IDs:
 - Dependencies reference these slugified IDs
 - Use `[depends: task-id]` inline for dependencies
 - Use `[id: custom-id]` if you want a shorter custom ID
+
+## Context Section Rules
+
+The `## Context` section is for sprint-level knowledge that sits between the
+project-level CLAUDE.md and the individual tasks. Worker agents read it before
+executing each task.
+
+**Include only what you've observed or been told:**
+- Why this sprint exists (the problem being solved)
+- Hard constraints discovered in the codebase or spec ("X must remain backward-compatible")
+- Key design decisions that span multiple tasks ("use lazy imports so Y is never pulled in for Z-only users")
+- Explicit "don't do X" pitfalls where a reasonable agent would make the wrong call
+
+**Do not include:**
+- General best practices or conventions (those belong in CLAUDE.md)
+- Guidelines you invented that aren't grounded in the spec or codebase
+- Anything obvious from the task descriptions themselves
+
+If you have nothing meaningful to say — e.g. simple isolated tasks with no
+cross-cutting concerns — omit the section entirely rather than padding it.
 
 ## Task Quality Checklist
 
