@@ -1,4 +1,4 @@
-"""Prompt builders for judge, worker, and researcher agents."""
+"""Prompt builders for judge, worker, researcher, portfolio, and planner agents."""
 
 import re
 import textwrap
@@ -127,6 +127,35 @@ def build_portfolio_prompt(scan_dir: Path, project_paths: list[Path]) -> str:
         for name in without_summary:
             lines.append(f"  - {name}")
         lines.append("")
+
+    return "\n".join(lines)
+
+
+def build_planner_prompt(project_path: Path, context_file: Path | None = None) -> str:
+    """Build the prompt for the planner agent."""
+    lines = [
+        f"Analyze the project at `{project_path}` and create or improve the",
+        f"task plan in `{MANIFEST_PATH}`.",
+        "",
+        "If no manifest exists yet, create one with appropriate frontmatter",
+        "and a task list. If one exists, improve it.",
+    ]
+
+    if context_file:
+        try:
+            content = context_file.read_text(encoding="utf-8")
+        except OSError:
+            content = f"(could not read {context_file})"
+
+        lines += [
+            "",
+            "Use the following file as additional context for planning.",
+            f"Source: `{context_file}`",
+            "",
+            "--- CONTEXT START ---",
+            content,
+            "--- CONTEXT END ---",
+        ]
 
     return "\n".join(lines)
 

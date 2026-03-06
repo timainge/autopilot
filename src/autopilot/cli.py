@@ -16,7 +16,7 @@ from .manifest import (
     get_task_summary,
     load_manifest,
 )
-from .orchestrator import build_portfolio, process_project, research_project
+from .orchestrator import build_portfolio, plan_project, process_project, research_project
 
 
 def _default_agents_dir() -> Path:
@@ -44,6 +44,17 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Directory containing agent role configs (default: bundled agents)",
+    )
+    parser.add_argument(
+        "--plan",
+        action="store_true",
+        help="Run the planner agent to create or improve project manifests",
+    )
+    parser.add_argument(
+        "--context",
+        type=Path,
+        default=None,
+        help="File to use as additional context for planning (e.g. existing TODO list)",
     )
     parser.add_argument(
         "--research",
@@ -74,7 +85,7 @@ async def async_main() -> None:
 
     project_paths: list[Path] = []
 
-    broad_mode = args.research or args.portfolio
+    broad_mode = args.research or args.portfolio or args.plan
 
     if args.portfolio and not args.scan and not args.projects:
         print("  --portfolio requires --scan or explicit project paths.")
@@ -96,7 +107,7 @@ async def async_main() -> None:
         project_paths = [Path(p).expanduser().resolve() for p in args.projects]
     else:
         cwd = Path.cwd()
-        if args.research:
+        if args.research or args.plan:
             project_paths = [cwd]
         elif (cwd / ".dev" / "autopilot.md").exists():
             project_paths = [cwd]
@@ -129,6 +140,8 @@ async def async_main() -> None:
         mode_label = "Portfolio"
     elif args.research:
         mode_label = "Research"
+    elif args.plan:
+        mode_label = "Plan"
     else:
         mode_label = "Autopilot"
     log_header(f"{mode_label} — {len(project_paths)} project(s)")
@@ -163,11 +176,14 @@ async def async_main() -> None:
         scan_root = args.scan.expanduser().resolve() if args.scan else project_paths[0].parent
         await build_portfolio(scan_root, project_paths, agents_dir)
     else:
+        context_file = args.context.expanduser().resolve() if args.context else None
         for project_path in project_paths:
             if not project_path.is_dir():
                 log(str(project_path), "Not a directory — skipping", "⏭️")
                 continue
-            if args.research:
+            if args.plan:
+                await plan_project(project_path, agents_dir, context_file)
+            elif args.research:
                 await research_project(project_path, agents_dir)
             else:
                 await process_project(project_path, agents_dir)

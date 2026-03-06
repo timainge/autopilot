@@ -14,31 +14,28 @@ sessions. Session Pilot automates this outer loop.
 
 ```
 ┌─────────────┐     ┌──────────┐     ┌─────────────────┐
-│  pilot.py   │────▶│  Judge   │────▶│ "READY" / "NOT  │
-│ (for each   │     │  Agent   │     │  READY + why"   │
-│  project)   │     └──────────┘     └─────────────────┘
-│             │
+│  autopilot  │────▶│  Judge   │────▶│ "READY" / "NOT  │
+│ (each run)  │     │  Agent   │     │  READY + why"   │
+│             │     └──────────┘     └─────────────────┘
 │  if approved│     ┌──────────┐     ┌─────────────────┐
 │  ──────────▶│────▶│  Worker  │────▶│ Task complete,  │
-│  next task  │     │  Agent   │     │ commit, mark ✅  │
+│  next task  │     │  Agent   │     │ commit, mark ✓  │
 │             │     └──────────┘     └─────────────────┘
 │  loop ──────│
 └─────────────┘
 ```
 
-1. **Discover** — find projects with `.dev/autopilot.md` manifests
-2. **Judge** — if not approved, evaluate plan readiness via LLM judge
-3. **Execute** — for approved projects, run the next pending task
-4. **Track** — tasks are marked done in the manifest; failures recorded with retry context
+Each run has two phases:
+
+1. **Judge** — if `approved: false`, evaluates whether the plan is ready for
+   autonomous execution. Never auto-approves; you must set `approved: true`.
+2. **Worker** — if `approved: true`, runs the next pending task, verifies it
+   was marked done, retries on failure, and loops until complete or stuck.
 
 ## Prerequisites
 
 ```bash
-# Install from source
 uv pip install -e .
-
-# Or install dependencies directly
-pip install claude-agent-sdk pyyaml
 ```
 
 The Agent SDK bundles the Claude Code CLI. You need one of:
@@ -80,46 +77,65 @@ Description of what you're building and any relevant context.
 
 See `autopilot.example.md` for a full example.
 
-### 2. Run the judge
+### 2. Generate a plan (optional)
+
+Instead of writing a manifest by hand, let the planner agent create one:
+
+```bash
+# Generate a plan from the codebase
+autopilot --plan /path/to/project
+
+# Seed with an existing TODO list, spec, or planning doc
+autopilot --plan --context /path/to/TODO.md /path/to/project
+```
+
+The planner explores the codebase and writes `.dev/autopilot.md` with structured
+tasks. `--context` accepts any file — a TODO list, design doc, meeting notes, etc.
+
+### 3. Evaluate and approve
 
 ```bash
 autopilot /path/to/your/project
 ```
 
-The judge evaluates whether the plan is ready. If it says READY, set
-`approved: true` in the manifest.
+The judge evaluates the manifest and prints a READY / NOT_READY verdict with
+feedback. If NOT_READY, revise based on the suggestions and run again.
 
-### 3. Run the worker loop
+Once the plan looks good, set `approved: true` in the manifest and run again.
+Autopilot switches to worker mode and executes tasks one by one, committing
+each when done and retrying failures up to `max_task_attempts` times.
+
+### 4. Process multiple projects
 
 ```bash
-autopilot /path/to/your/project
+# Explicit paths
+autopilot ~/Projects/project-a ~/Projects/project-b
+
+# Scan a directory for projects with .dev/autopilot.md
+autopilot --scan ~/Projects
+
+# Preview what would run
+autopilot --scan ~/Projects --dry-run
 ```
 
-With `approved: true`, autopilot starts executing tasks sequentially.
+## Research & Portfolio Modes
 
-### 4. Research projects
+These are standalone modes for exploring projects without a manifest.
 
-Before creating a manifest, you can run the researcher agent to analyze a project
-and get a recommendation (finish & launch, archive, blog post, etc.):
+### Research a project
+
+Runs the researcher agent to analyze a project and write findings to
+`.dev/research/summary.md`:
 
 ```bash
-# Research a single project
 autopilot --research /path/to/project
-
-# Research all projects in a directory (skips forks/clones by default)
-autopilot --research --scan ~/Projects
-
-# Include forks and cloned repos
-autopilot --research --all --scan ~/Projects
-
-# Preview which projects would be researched
+autopilot --research --scan ~/Projects        # all projects in directory
+autopilot --research --all --scan ~/Projects  # include forks/clones
 autopilot --research --scan ~/Projects --dry-run
 ```
 
-Results are written to `.dev/research/summary.md` in each project.
-
 When scanning, forks and cloned repos are skipped by comparing the git remote
-owner against your username. Set your username via (checked in this order):
+owner against your username. Configure via (checked in this order):
 
 ```bash
 export AUTOPILOT_GIT_USER=yourusername
@@ -128,41 +144,24 @@ git config --global autopilot.user yourusername
 # or have the gh CLI logged in (auto-detected)
 ```
 
-### 5. Build a portfolio overview
+### Build a portfolio overview
 
-After researching projects (or even without), build a cross-project overview
-with an index table, analysis by tech stack/state/recommendation, and
-prioritized quick wins:
+Builds a cross-project index with analysis by tech stack, state, and
+prioritized quick wins. Projects with existing research summaries are indexed
+from those; the rest get a quick assessment.
 
 ```bash
-# Portfolio of all your projects
 autopilot --portfolio --scan ~/Projects
-
-# Preview
 autopilot --portfolio --scan ~/Projects --dry-run
 ```
 
-Output is written to `<scan_dir>/.dev/portfolio.md`. Projects with existing
-research summaries are indexed from those; the rest get a quick assessment.
-
-### 6. Process multiple projects
-
-```bash
-# Explicit paths
-autopilot ~/Projects/project-a ~/Projects/project-b
-
-# Scan a directory
-autopilot --scan ~/Projects
-
-# Dry run — see what would happen
-autopilot --scan ~/Projects --dry-run
-```
+Output is written to `<scan_dir>/.dev/portfolio.md`.
 
 ## Manifest Format
 
-The manifest is markdown with YAML frontmatter. It lives at `.dev/autopilot.md`
-in each project directory. The `.dev/` directory should be added to the project's
-`.gitignore` — it contains orchestration state, not source code.
+The manifest is markdown with YAML frontmatter at `.dev/autopilot.md`. Add
+`.dev/` to the project's `.gitignore` — it contains orchestration state, not
+source code.
 
 ### Frontmatter Fields
 
@@ -171,10 +170,10 @@ in each project directory. The `.dev/` directory should be added to the project'
 | `name` | string | dir name | Project display name |
 | `approved` | bool | false | Human approval gate — must be set manually |
 | `status` | string | pending | pending / active / paused / completed / failed |
-| `worktree` | bool | false | Reserved: use git worktrees for task isolation |
-| `branch_prefix` | string | autopilot | Reserved: prefix for task branches |
-| `max_budget_usd` | float | 5.0 | Budget cap for the project |
+| `max_budget_usd` | float | 5.0 | Budget cap per project run |
 | `max_task_attempts` | int | 3 | Max retries per task before marking failed |
+| `worktree` | bool | false | Reserved: git worktree isolation |
+| `branch_prefix` | string | autopilot | Reserved: prefix for task branches |
 
 ### Task Format
 
@@ -192,6 +191,8 @@ Tasks are standard markdown checkboxes under a `## Tasks` heading:
 - **IDs** are auto-derived by slugifying the title, or set explicitly with `[id: ...]`
 - **Dependencies** use `[depends: task-id-1, task-id-2]`
 - **Status** is tracked by the checkbox: `[ ]` = pending, `[x]` = done
+- **Retry metadata** (`[attempts: N]`, `[status: failed]`, `[error: ...]`) is
+  written by autopilot and persists across reloads — don't edit these manually
 
 ## Agent Configs
 
@@ -214,9 +215,9 @@ defines a role's system prompt and SDK options.
 
 - **judge** — evaluates manifest readiness, suggests improvements
 - **worker** — executes tasks: reads context, implements, tests, commits
-- **planner** — creates or improves task plans (invoke manually)
-- **researcher** — analyzes a project and writes a research summary with recommendations
-- **portfolio** — builds a cross-project portfolio overview with index table and synthesis
+- **planner** — creates or improves task plans (`--plan` flag)
+- **researcher** — analyzes a project and writes `.dev/research/summary.md`
+- **portfolio** — builds a cross-project overview at `<scan_dir>/.dev/portfolio.md`
 
 ### Custom Roles
 
@@ -264,5 +265,4 @@ both humans and agents can read naturally.
 - Git worktree isolation for parallel task execution
 - Budget tracking across sessions
 - Webhook/notification on completion or failure
-- Integration with picobot for scheduled execution
 - Specialised agents (test architect, dependency updater, etc.)

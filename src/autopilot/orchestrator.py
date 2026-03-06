@@ -14,11 +14,39 @@ from .manifest import (
 )
 from .prompts import (
     build_judge_prompt,
+    build_planner_prompt,
     build_portfolio_prompt,
     build_researcher_prompt,
     build_worker_prompt,
     parse_judge_result,
 )
+
+
+async def plan_project(
+    project_path: Path, agents_dir: Path, context_file: Path | None = None,
+) -> None:
+    """Run the planner agent to create or improve a project manifest."""
+    project_name = project_path.name
+
+    try:
+        planner_config = load_agent_config("planner", agents_dir)
+    except FileNotFoundError:
+        log(project_name, "No planner agent config found — skipping", "❌")
+        return
+
+    ctx = f" (with context from {context_file.name})" if context_file else ""
+    log(project_name, f"Running planner...{ctx}", "📝")
+
+    prompt = build_planner_prompt(project_path, context_file)
+    result = await run_agent(planner_config, project_path, prompt)
+
+    if result.success:
+        log(project_name, "Planning complete — see .dev/autopilot.md", "✅")
+    else:
+        log(project_name, f"Planning failed: {result.error}", "❌")
+
+    if result.cost_usd > 0:
+        log(project_name, f"Planner cost: ${result.cost_usd:.4f}", "💰")
 
 
 async def build_portfolio(
