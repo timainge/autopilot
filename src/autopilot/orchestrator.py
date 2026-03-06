@@ -38,7 +38,7 @@ async def plan_project(
     log(project_name, f"Running planner...{ctx}", "📝")
 
     prompt = build_planner_prompt(project_path, context_file)
-    result = await run_agent(planner_config, project_path, prompt)
+    result = await run_agent(planner_config, project_path, prompt, project_name=project_name)
 
     if result.success:
         log(project_name, "Planning complete — see .dev/autopilot.md", "✅")
@@ -71,7 +71,7 @@ async def build_portfolio(
     )
 
     prompt = build_portfolio_prompt(scan_dir, project_paths)
-    result = await run_agent(portfolio_config, scan_dir, prompt)
+    result = await run_agent(portfolio_config, scan_dir, prompt, project_name="portfolio")
 
     if result.success:
         log("portfolio", f"Portfolio complete — see {scan_dir}/.dev/portfolio.md", "✅")
@@ -95,7 +95,7 @@ async def research_project(project_path: Path, agents_dir: Path) -> None:
     log(project_name, "Running project research...", "🔬")
 
     prompt = build_researcher_prompt(project_path)
-    result = await run_agent(researcher_config, project_path, prompt)
+    result = await run_agent(researcher_config, project_path, prompt, project_name=project_name)
 
     if result.success:
         log(project_name, "Research complete — see .dev/research/summary.md", "✅")
@@ -137,7 +137,9 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
             return
 
         judge_prompt = build_judge_prompt(manifest)
-        result = await run_agent(judge_config, project_path, judge_prompt)
+        result = await run_agent(
+            judge_config, project_path, judge_prompt, project_name=project_name,
+        )
 
         if not result.success:
             log(project_name, f"Judge failed: {result.error}", "❌")
@@ -213,7 +215,9 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
             break
 
         worker_prompt = build_worker_prompt(manifest, task)
-        result = await run_agent(worker_config, project_path, worker_prompt)
+        result = await run_agent(
+            worker_config, project_path, worker_prompt, project_name=project_name,
+        )
 
         if result.cost_usd > 0:
             log(project_name, f"Task cost: ${result.cost_usd:.4f}", "💰")
