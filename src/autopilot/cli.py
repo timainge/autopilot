@@ -15,6 +15,7 @@ from .manifest import (
     get_repo_owner,
     get_task_summary,
     load_manifest,
+    reset_stuck_project,
 )
 from .orchestrator import build_portfolio, plan_project, process_project, research_project
 
@@ -70,6 +71,11 @@ def parse_args() -> argparse.Namespace:
         "--all",
         action="store_true",
         help="Include all projects in research/portfolio mode (don't skip forks/clones)",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reset stuck projects and retry failed tasks",
     )
     parser.add_argument(
         "--dry-run",
@@ -186,6 +192,11 @@ async def async_main() -> None:
             elif args.research:
                 await research_project(project_path, agents_dir)
             else:
+                if args.resume:
+                    if reset_stuck_project(project_path):
+                        log(str(project_path.name), "Reset stuck project — retrying failed tasks", "🔄")
+                    else:
+                        log(str(project_path.name), "Project is not stuck — proceeding normally", "ℹ️")
                 await process_project(project_path, agents_dir)
 
     log_header(f"{mode_label} — complete")

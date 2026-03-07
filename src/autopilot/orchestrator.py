@@ -125,6 +125,10 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
         log(project_name, "Project is paused — skipping", "⏸️")
         return
 
+    if manifest.status == "stuck":
+        log(project_name, "Project is stuck — run 'autopilot --resume' to retry failed tasks", "🛑")
+        return
+
     # --- Step 1: Check approval / run judge ---
 
     if not manifest.approved:
@@ -195,7 +199,7 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
                 else:
                     log(project_name, f"No runnable tasks remain ({get_task_summary(manifest)})", "🛑")
 
-                update_manifest_frontmatter(manifest, {"status": "paused"})
+                update_manifest_frontmatter(manifest, {"status": "stuck"})
             break
 
         task_idx = next(
