@@ -12,6 +12,7 @@ class Task:
     depends: list[str] = field(default_factory=list)
     attempts: int = 0
     last_error: str | None = None
+    body: str = ""
     line_number: int = 0
 
 

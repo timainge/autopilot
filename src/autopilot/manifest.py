@@ -44,41 +44,68 @@ def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
 
 
 def parse_tasks(content: str) -> list[Task]:
-    """Parse markdown task checkboxes from content."""
-    tasks: list[Task] = []
-    task_pattern = re.compile(
-        r"^(\s*)-\s+\[([ xX])\]\s+(.+)$", re.MULTILINE
-    )
+    """Parse header-based task sections from content.
 
-    for match in task_pattern.finditer(content):
-        checkbox = match.group(2).strip().lower()
-        raw_title = match.group(3).strip()
+    Tasks are defined as level-3 headings:
+        ### [ ] task-id [depends: other-id]
+        ### [x] task-id
+    """
+    tasks: list[Task] = []
+    header_pattern = re.compile(r"^### \[([ xX])\] (.+)$", re.MULTILINE)
+
+    matches = list(header_pattern.finditer(content))
+    for idx, match in enumerate(matches):
+        checkbox = match.group(1).strip().lower()
+        raw_header = match.group(2).strip()
         line_number = content[: match.start()].count("\n") + 1
 
+        # Extract [key: value] metadata from header
         meta: dict[str, str] = {}
-        title_clean = raw_title
-        for meta_match in re.finditer(r"\[(\w+):\s*([^\]]+)\]", raw_title):
+        header_clean = raw_header
+        for meta_match in re.finditer(r"\[(\w+):\s*([^\]]+)\]", raw_header):
             meta[meta_match.group(1).lower()] = meta_match.group(2).strip()
-            title_clean = title_clean.replace(meta_match.group(0), "").strip()
+            header_clean = header_clean.replace(meta_match.group(0), "").strip()
 
-        task_id = meta.get("id", slugify(title_clean))
+        # The cleaned header text is the task ID (already slug-format from planner)
+        task_id = header_clean.strip()
+        # Fallback: slugify if the text isn't already slug-format
+        if not re.match(r"^[a-z0-9][a-z0-9-]*$", task_id):
+            task_id = slugify(task_id)
+
+        # Title: same as id for header-based format (no separate title field)
+        title = header_clean.strip()
+
         depends_str = meta.get("depends", "")
         depends = [d.strip() for d in depends_str.split(",") if d.strip()] if depends_str else []
         attempts = int(meta.get("attempts", "0"))
 
         status = "done" if checkbox == "x" else "pending"
-        # Preserve failed status from inline metadata
         if meta.get("status") == "failed":
             status = "failed"
 
-        tasks.append(Task(
-            id=task_id,
-            title=title_clean,
-            status=status,
-            depends=depends,
-            attempts=attempts,
-            line_number=line_number,
-        ))
+        # Extract body: text between end of this header line and the next header or --- separator
+        header_end = match.end()
+        if idx + 1 < len(matches):
+            next_start = matches[idx + 1].start()
+            body_raw = content[header_end:next_start]
+        else:
+            body_raw = content[header_end:]
+
+        # Trim trailing --- separator and surrounding whitespace
+        body = re.sub(r"\s*---\s*$", "", body_raw.strip())
+        body = body.strip()
+
+        tasks.append(
+            Task(
+                id=task_id,
+                title=title,
+                status=status,
+                depends=depends,
+                attempts=attempts,
+                body=body,
+                line_number=line_number,
+            )
+        )
 
     return tasks
 
@@ -128,37 +155,34 @@ def update_task_status(
             continue
 
         for i, line in enumerate(lines):
-            checkbox_match = re.match(r"^(\s*)-\s+\[([ xX])\]\s+(.+)$", line)
-            if not checkbox_match:
+            header_match = re.match(r"^### \[([ xX])\] (.+)$", line)
+            if not header_match:
                 continue
 
-            raw_title = checkbox_match.group(3).strip()
-            clean = re.sub(r"\[(\w+):\s*[^\]]+\]", "", raw_title).strip()
-            line_id = slugify(clean)
+            raw_header = header_match.group(2).strip()
+            # Strip all [key: value] brackets to get the bare ID text
+            bare = re.sub(r"\[(\w+):\s*[^\]]+\]", "", raw_header).strip()
+            if not re.match(r"^[a-z0-9][a-z0-9-]*$", bare):
+                bare = slugify(bare)
 
-            id_match = re.search(r"\[id:\s*([^\]]+)\]", raw_title)
-            if id_match:
-                line_id = id_match.group(1).strip()
-
-            if line_id != task_id:
+            if bare != task_id:
                 continue
 
-            indent = checkbox_match.group(1)
             mark = "x" if new_status == "done" else " "
 
-            # Strip old status/error/attempts metadata
-            title_part = re.sub(r"\s*\[status:\s*[^\]]+\]", "", raw_title)
-            title_part = re.sub(r"\s*\[error:\s*[^\]]+\]", "", title_part)
-            title_part = re.sub(r"\s*\[attempts:\s*[^\]]+\]", "", title_part)
+            # Strip old status/error/attempts metadata from the header
+            header_part = re.sub(r"\s*\[status:\s*[^\]]+\]", "", raw_header)
+            header_part = re.sub(r"\s*\[error:\s*[^\]]+\]", "", header_part)
+            header_part = re.sub(r"\s*\[attempts:\s*[^\]]+\]", "", header_part)
 
             # Append updated metadata
             if attempts is not None and attempts > 0:
-                title_part += f" [attempts: {attempts}]"
+                header_part += f" [attempts: {attempts}]"
             if new_status == "failed" and error:
                 short_error = error[:120].replace("\n", " ").replace("]", ")")
-                title_part += f" [status: failed] [error: {short_error}]"
+                header_part += f" [status: failed] [error: {short_error}]"
 
-            lines[i] = f"{indent}- [{mark}] {title_part}"
+            lines[i] = f"### [{mark}] {header_part}"
 
             # Update in-memory task
             task.status = new_status
@@ -246,6 +270,26 @@ def get_task_summary(manifest: Manifest) -> str:
     return f"{done}/{total} done, {pending} pending, {failed} failed"
 
 
+def reset_stuck_project(project_path: Path) -> bool:
+    """Reset a stuck project so it can be resumed.
+
+    Resets all failed tasks to pending with 0 attempts, and sets
+    the project status from 'stuck' to 'active'.
+
+    Returns True if the project was reset, False if it wasn't stuck.
+    """
+    manifest = load_manifest(project_path)
+    if manifest is None or manifest.status != "stuck":
+        return False
+
+    failed_tasks = [t for t in manifest.tasks if t.status == "failed"]
+    for task in failed_tasks:
+        update_task_status(manifest, task.id, "pending", attempts=0)
+
+    update_manifest_frontmatter(manifest, {"status": "active"})
+    return True
+
+
 def discover_projects(scan_dir: Path) -> list[Path]:
     """Find all directories containing a manifest under scan_dir."""
     projects = []
@@ -257,9 +301,20 @@ def discover_projects(scan_dir: Path) -> list[Path]:
 
 # Markers that indicate a directory is a software project
 _PROJECT_MARKERS = (
-    ".git", "package.json", "pyproject.toml", "Cargo.toml", "go.mod",
-    "Makefile", "CMakeLists.txt", "build.gradle", "pom.xml", "Gemfile",
-    "requirements.txt", "setup.py", "composer.json", "mix.exs",
+    ".git",
+    "package.json",
+    "pyproject.toml",
+    "Cargo.toml",
+    "go.mod",
+    "Makefile",
+    "CMakeLists.txt",
+    "build.gradle",
+    "pom.xml",
+    "Gemfile",
+    "requirements.txt",
+    "setup.py",
+    "composer.json",
+    "mix.exs",
 )
 
 
@@ -278,7 +333,10 @@ def _run_cmd(args: list[str], timeout: int = 5) -> str | None:
     """Run a command and return stripped stdout, or None on failure."""
     try:
         result = subprocess.run(
-            args, capture_output=True, text=True, timeout=timeout,
+            args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()

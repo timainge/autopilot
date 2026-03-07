@@ -40,9 +40,7 @@ def build_judge_prompt(manifest: Manifest) -> str:
 
 def build_worker_prompt(manifest: Manifest, task: Task) -> str:
     """Build the prompt for a worker agent executing a specific task."""
-    task_index = next(
-        (i for i, t in enumerate(manifest.tasks) if t.id == task.id), 0
-    )
+    task_index = next((i for i, t in enumerate(manifest.tasks) if t.id == task.id), 0)
     total = len(manifest.tasks)
 
     retry_context = ""
@@ -56,6 +54,8 @@ def build_worker_prompt(manifest: Manifest, task: Task) -> str:
             Address this failure specifically before proceeding.
         """)
 
+    task_detail = f"\n\n{task.body.strip()}" if task.body and task.body.strip() else ""
+
     return textwrap.dedent(f"""\
         You are working on the project in this directory.
 
@@ -63,7 +63,7 @@ def build_worker_prompt(manifest: Manifest, task: Task) -> str:
         project context, plan, and current progress.
 
         YOUR CURRENT TASK (task {task_index + 1} of {total}):
-        "{task.title}"
+        "{task.title}"{task_detail}
         {retry_context}
         INSTRUCTIONS:
         1. Read relevant project files to understand the current state
@@ -71,7 +71,7 @@ def build_worker_prompt(manifest: Manifest, task: Task) -> str:
         3. Run any appropriate tests or checks to verify your work
         4. Commit your changes with a clear, descriptive commit message
         5. Mark this task as complete in `{MANIFEST_PATH}` by changing
-           its checkbox from `- [ ]` to `- [x]`
+           its checkbox from `### [ ]` to `### [x]`
         6. Provide a brief summary of what you accomplished
 
         RULES:

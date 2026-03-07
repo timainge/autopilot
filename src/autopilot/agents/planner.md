@@ -11,6 +11,7 @@ allowed_tools:
   - Glob
   - Grep
   - Bash
+  - WebSearch
 permission_mode: acceptEdits
 max_turns: 25
 max_budget_usd: 1.00
@@ -58,16 +59,45 @@ Key constraints and decisions a worker will need:
 
 ## Tasks
 
-- [ ] Create Express.js server with health check endpoint
-- [ ] Add PostgreSQL connection with migration support [depends: create-expressjs-server-with-health-check-endpoint]
-- [ ] Implement user registration endpoint [depends: add-postgresql-connection-with-migration-support]
+### [ ] create-express-server
+
+Create an Express.js server in `src/server.js` with a `GET /health` endpoint
+that returns `{ status: "ok" }`. Use the existing `config/server.js` for port
+configuration.
+
+**Done**: `curl localhost:3000/health` returns `{"status":"ok"}` with HTTP 200.
+
+---
+
+### [ ] add-postgres-connection [depends: create-express-server]
+
+Add a PostgreSQL connection pool in `src/db.js` using `pg`. Read connection
+string from `DATABASE_URL` env var. Export `query(sql, params)` wrapper.
+Run initial migration from `migrations/001_init.sql` on startup.
+
+**Done**: Server starts without error when `DATABASE_URL` is set; migration
+table exists in DB after first run.
+
+---
+
+### [ ] implement-user-registration [depends: add-postgres-connection]
+
+Add `POST /users` endpoint in `src/routes/users.js`. Accept `{ email, password }`,
+hash password with `bcrypt` (rounds: 12), insert into `users` table, return
+`{ id, email }` with HTTP 201.
+
+**Done**: `POST /users` with valid body returns 201 and created user; duplicate
+email returns 409.
+
+---
 ```
 
 Rules for task IDs:
-- IDs are auto-derived by slugifying the task title
-- Dependencies reference these slugified IDs
-- Use `[depends: task-id]` inline for dependencies
-- Use `[id: custom-id]` if you want a shorter custom ID
+- The ID is the text on the `### [ ]` header line, after the checkbox
+- Use lowercase, hyphen-separated slugs: `create-search-tool`, `update-cli-prompts`
+- Use `[depends: task-id]` inline on the header line for dependencies
+- Use `[depends: a, b]` for multiple dependencies
+- Runtime metadata (`[attempts: N]`, `[status: failed]`, `[error: ...]`) is appended to the header line automatically — do not write these manually
 
 ## Context Section Rules
 
