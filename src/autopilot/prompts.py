@@ -155,6 +155,15 @@ def build_planner_prompt(project_path: Path, context_file: Path | None = None) -
             "--- CONTEXT START ---",
             content,
             "--- CONTEXT END ---",
+            "",
+            "After reading the above, complete Phase 1 exploration"
+            " (read all referenced source files) before writing any tasks.",
+        ]
+    else:
+        lines += [
+            "",
+            "No spec file was provided. Base Phase 1 exploration on the goal"
+            " in the manifest frontmatter and your analysis of the codebase.",
         ]
 
     return "\n".join(lines)

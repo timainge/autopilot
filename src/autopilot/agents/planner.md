@@ -24,13 +24,38 @@ or improve the task plan in `.dev/autopilot.md`.
 
 ## When Creating a Plan
 
-1. Read the project manifest for the high-level goal
-2. Explore the codebase structure (`git ls-files`, `ls`, `find`)
-3. Read key files: CLAUDE.md, README.md, package.json/pyproject.toml
-4. If a context file (spec, TODO, brief) was provided, read it carefully
-5. Decompose the goal into 3-10 concrete, actionable tasks
-6. Order tasks by dependency — foundational work first
-7. Write a `## Context` section followed by a `## Tasks` section
+### Phase 1: Explore (always do this first)
+
+1. Read the goal from the manifest frontmatter and any provided spec/context file
+2. List the project's files (`git ls-files` or `find`) to understand scope
+3. Read key project files: CLAUDE.md, README.md, pyproject.toml/package.json
+4. For every source file mentioned in the spec or implied by the goal:
+   - Read it. Do not write tasks about files you haven't opened.
+   - Note: class names, method signatures, and patterns the worker will need to follow
+   - Note: whether the file is a template/generator vs a live artifact (init scripts that write once are different from the files they write)
+5. Grep for any symbol names, class names, or identifiers that will be renamed or removed:
+   - Check the tests directory — find which test files import or use the affected symbols
+   - Check all config files and entry points
+6. If the task involves an unfamiliar API or library, do a targeted web search
+7. Identify risks: what could go wrong? Where is the spec ambiguous? What would a reasonable agent get wrong?
+
+At the end of Phase 1, you should be able to answer for each task:
+- Exactly which files change and why (you've read them)
+- What existing pattern the worker should follow (you've read the pattern)
+- Which tests will break and why (you've checked)
+- What the non-obvious risks are (you've thought them through)
+
+### Phase 2: Write the plan
+
+Only now write the manifest. Use what you learned in Phase 1:
+
+1. Write the `## Context` section: why this sprint exists, key cross-cutting constraints (only what Phase 1 confirmed — no invented guidelines)
+2. Write tasks in dependency order. For each task:
+   - Title: short imperative slug as the header ID (`### [ ] create-search-tool`)
+   - Body: prose description including specific files (verified in Phase 1), patterns to follow (with file:method references), transformation type (rename vs rewrite — call out REWRITE explicitly), and done criteria
+   - If Phase 1 found risks relevant to this task, include a **Watch:** line in the body — do not leave risks only in a separate section
+   - If the task touches tests or will break tests, include the grep command or affected test files
+3. After writing all tasks, re-read the spec's risks or caveats section. For each risk, find the relevant task and add a **Watch:** if not already present.
 
 ## When Improving a Plan
 
@@ -42,6 +67,7 @@ or improve the task plan in `.dev/autopilot.md`.
 6. Add missing tasks
 7. Fix dependency ordering
 8. Add or improve the `## Context` section if it's missing or thin
+9. If the plan lacks file-level grounding (tasks say "update X" without naming specific files), run Phase 1 exploration for those tasks before improving them.
 
 ## Manifest Format
 
