@@ -1,14 +1,32 @@
 [project]
-name = "autopilot"
+name = "claude-autopilot"
 version = "0.1.0"
 description = "Autonomous project session orchestrator for Claude Code"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+keywords = ["claude", "claude-code", "ai", "automation", "developer-tools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Utilities",
+]
 dependencies = [
     "pyyaml>=6.0",
     "claude-agent-sdk>=0.1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/timainge/autopilot"
+Documentation = "https://timainge.github.io/autopilot"
+Repository = "https://github.com/timainge/autopilot"
+"Bug Tracker" = "https://github.com/timainge/autopilot/issues"
+Changelog = "https://github.com/timainge/autopilot/releases"
 
 [project.scripts]
 autopilot = "autopilot.cli:main"
@@ -22,6 +40,19 @@ packages = ["src/autopilot"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/autopilot/agents" = "autopilot/agents"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+    "twine>=5.0",
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocs-minify-plugin>=0.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py311"
