@@ -1,41 +1,54 @@
-# Session Pilot
+# autopilot
 
-Autonomous project session orchestrator. Reads project manifests, evaluates
-readiness via an LLM judge, and executes tasks sequentially through Claude Code
-via the Anthropic Agent SDK.
+[![PyPI](https://img.shields.io/pypi/v/claude-autopilot)](https://pypi.org/project/claude-autopilot/)
+[![CI](https://github.com/timainge/autopilot/actions/workflows/ci.yml/badge.svg)](https://github.com/timainge/autopilot/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/pypi/pyversions/claude-autopilot)](https://pypi.org/project/claude-autopilot/)
+[![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://timainge.github.io/autopilot)
 
-## The Problem
+Autonomous project session orchestrator for Claude Code. You write a plan; autopilot runs it. It reads project manifests (`.dev/autopilot.md`), evaluates whether the plan is ready for autonomous execution via a judge agent, then loops through tasks sequentially using the Anthropic Agent SDK — each task gets its own Claude Code session, commits its work, and marks itself done. The result is an automated outer loop for hobby project development: no more opening Claude Code, typing "continue with the plan", and babysitting sessions.
 
-You have hobby projects with clear plans but spend your time as a "human cron
-job" — opening Claude Code, saying "continue with the plan", and babysitting
-sessions. Session Pilot automates this outer loop.
+---
 
 ## How It Works
 
 ```
-┌─────────────┐     ┌──────────┐     ┌─────────────────┐
-│  autopilot  │────▶│  Judge   │────▶│ "READY" / "NOT  │
-│ (each run)  │     │  Agent   │     │  READY + why"   │
-│             │     └──────────┘     └─────────────────┘
-│  if approved│     ┌──────────┐     ┌─────────────────┐
-│  ──────────▶│────▶│  Worker  │────▶│ Task complete,  │
-│  next task  │     │  Agent   │     │ commit, mark ✓  │
-│             │     └──────────┘     └─────────────────┘
-│  loop ──────│
-└─────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        autopilot run                             │
+│                                                                  │
+│  optional prep       planning          execution                 │
+│                                                                  │
+│  --research .   ──▶  --plan .    ──▶  Judge phase               │
+│  --roadmap .          (lazy:            │                        │
+│                       runs research     │ READY / NOT_READY      │
+│                       + roadmap if      ▼                        │
+│                       missing)        Approve gate               │
+│                                       (manual or --auto-approve) │
+│                                         │                        │
+│                                         ▼                        │
+│                                       Worker loop                │
+│                                       task → commit → ✓          │
+│                                       task → commit → ✓          │
+│                                       ...                        │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-Each run has two phases:
+**Phase overview:**
 
-1. **Judge** — if `approved: false`, evaluates whether the plan is ready for
-   autonomous execution. Never auto-approves; you must set `approved: true`.
-2. **Worker** — if `approved: true`, runs the next pending task, verifies it
-   was marked done, retries on failure, and loops until complete or stuck.
+1. **Research** (`--research`) — Researcher agent analyzes the codebase and writes `.dev/project-summary.md`: tech stack, current state, what's done, what's missing.
+2. **Roadmap** (`--roadmap`) — Roadmap agent reads the research summary and writes `.dev/roadmap.md` with a concrete shipping target and next steps.
+3. **Plan** (`--plan`) — Planner agent creates `.dev/autopilot.md` with structured tasks. Without `--context`, it lazily runs research + roadmap first if those artifacts don't exist yet.
+4. **Judge** — On each run with `approved: false`, the judge agent evaluates whether the manifest is ready for autonomous execution and prints a READY / NOT_READY verdict with feedback.
+5. **Approve** — A human sets `approved: true` in the manifest, or pass `--auto-approve` and autopilot sets it automatically when the judge returns READY.
+6. **Worker loop** — With `approved: true`, autopilot runs tasks one by one: each task spawns a fresh Claude Code session, the session implements the task, commits, and marks the checkbox done. Failures are retried up to `max_task_attempts` times.
 
-## Prerequisites
+---
+
+## Install
 
 ```bash
-uv pip install -e .
+pip install claude-autopilot
+# or
+uv pip install claude-autopilot
 ```
 
 The Agent SDK bundles the Claude Code CLI. You need one of:
@@ -49,107 +62,123 @@ claude setup-token
 export CLAUDE_CODE_OAUTH_TOKEN=<token from above>
 ```
 
-## Quick Start
-
-### 1. Add a manifest to your project
-
-Create `.dev/autopilot.md` in your project (and add `.dev/` to `.gitignore`):
-
-```markdown
----
-name: "My Project"
-approved: false
-status: pending
-max_budget_usd: 5.0
-max_task_attempts: 3
 ---
 
-# My Project
+## Single-Project Workflow
 
-Description of what you're building and any relevant context.
-
-## Tasks
-
-- [ ] First task to implement
-- [ ] Second task [depends: first-task-to-implement]
-- [ ] Third task [depends: second-task]
-```
-
-See `autopilot.example.md` for a full example.
-
-### 2. Generate a plan (optional)
-
-Instead of writing a manifest by hand, let the planner agent create one:
+### 1. Research the project (recommended)
 
 ```bash
-# Generate a plan from the codebase
-autopilot --plan /path/to/project
-
-# Seed with an existing TODO list, spec, or planning doc
-autopilot --plan --context /path/to/TODO.md /path/to/project
-
-# Run a second-pass critic agent to verify and improve the plan
-autopilot --plan --review /path/to/project
-autopilot --plan --review --context /path/to/TODO.md /path/to/project
+autopilot --research .
 ```
 
-The planner explores the codebase and writes `.dev/autopilot.md` with structured
-tasks. `--context` accepts any file — a TODO list, design doc, meeting notes, etc.
+Runs the researcher agent, writes `.dev/project-summary.md`. Captures tech stack, current state, what's done, and what's missing. Re-running is safe and cheap — the agent checks the stored commit hash against the current state and does a partial update if little has changed, or a full re-analysis if the project has moved significantly.
 
-`--review` runs a critic agent after the planner completes. The critic reads the
-plan adversarially — verifying file references exist, checking for missing
-dependencies, and sharpening vague task descriptions. It edits the manifest
-directly. Adds roughly 50% more cost but catches blind spots the planner missed.
-
-### 3. Evaluate and approve
+### 2. Build a shipping roadmap (recommended)
 
 ```bash
-autopilot /path/to/your/project
+autopilot --roadmap .
 ```
 
-The judge evaluates the manifest and prints a READY / NOT_READY verdict with
-feedback. If NOT_READY, revise based on the suggestions and run again.
+Reads the research summary (or does a quick assessment if it doesn't exist yet), then writes `.dev/roadmap.md` identifying the right shipping target (production launch, library publish, blog post, etc.) and the concrete steps to get there. The planner uses this as context to produce higher-quality tasks.
 
-Once the plan looks good, set `approved: true` in the manifest and run again.
-Autopilot switches to worker mode and executes tasks one by one, committing
-each when done and retrying failures up to `max_task_attempts` times.
-
-### 4. Process multiple projects
+### 3. Generate a plan
 
 ```bash
-# Explicit paths
-autopilot ~/Projects/project-a ~/Projects/project-b
+# Recommended: auto-runs research + roadmap if artifacts don't exist
+autopilot --plan .
 
-# Scan a directory for projects with .dev/autopilot.md
-autopilot --scan ~/Projects
+# Seed with an existing TODO list, spec, or design doc
+autopilot --plan --context TODO.md .
 
-# Preview what would run
-autopilot --scan ~/Projects --dry-run
+# Run a critic pass after planning
+autopilot --plan --review .
+autopilot --plan --review --context TODO.md .
 ```
 
-## Research & Portfolio Modes
+The planner agent explores the codebase and writes `.dev/autopilot.md` with structured, dependency-linked tasks.
 
-These are standalone modes for exploring projects without a manifest.
+Without `--context`, the planner automatically runs research + roadmap first if `.dev/project-summary.md` and `.dev/roadmap.md` don't already exist (lazy research). This is the recommended default — richer context produces better tasks.
 
-### Research a project
+`--context` accepts any file: a TODO list, design doc, meeting notes, or spec. Pass it to skip lazy research and seed the planner directly.
 
-Runs the researcher agent to analyze a project and write findings to
-`.dev/project-summary.md`:
+`--review` runs a critic agent after planning. The critic reads the plan adversarially — verifying file references exist, checking for missing dependencies, and sharpening vague descriptions. It edits the manifest directly. Adds roughly 50% more cost but catches blind spots the planner missed.
+
+See [Manifest Format](#manifest-format) for the full syntax reference.
+
+### 4. Evaluate and approve
 
 ```bash
-autopilot --research /path/to/project
-autopilot --research --scan ~/Projects        # all projects in directory
-autopilot --research --all --scan ~/Projects  # include forks/clones
+autopilot .
+```
+
+The judge evaluates the manifest and prints a READY / NOT_READY verdict with specific feedback. If NOT_READY, revise the manifest based on the feedback and run again.
+
+Once the plan is ready:
+
+```bash
+# Option A: edit manually
+# Open .dev/autopilot.md and set approved: true
+
+# Option B: auto-approve when judge says READY
+autopilot --auto-approve .
+```
+
+The approval gate exists by design — the judge evaluates readiness, but a human (or explicit `--auto-approve`) must unlock execution. This prevents runaway execution on half-baked plans.
+
+### 5. Execute
+
+```bash
+autopilot .
+```
+
+With `approved: true`, autopilot enters worker mode and runs tasks sequentially. Each task:
+- Spawns a fresh Claude Code session with full tool access
+- Implements the task, runs tests, commits the result
+- Marks the checkbox `[x]` in the manifest
+- Retries up to `max_task_attempts` times on failure
+
+---
+
+## Multi-Repo Workflow
+
+`--scan` maps every single-project action across an entire directory. All flags that work on a single project work with `--scan`. Autopilot discovers projects by finding directories that look like active repos (git-initialized, with a `package.json`, `pyproject.toml`, etc.).
+
+### Research all projects
+
+```bash
+autopilot --research --scan ~/Projects
+autopilot --research --all --scan ~/Projects   # include forks/clones
 autopilot --research --scan ~/Projects --dry-run
 ```
 
-Re-running on a project with an existing summary is safe and cheap — the agent
-checks the branch and commit hash stored in the summary against the current
-state. If little has changed it updates only the date and any changed fields;
-if there are significant changes it does a full re-analysis.
+### Build roadmaps
 
-When scanning, forks and cloned repos are skipped by comparing the git remote
-owner against your username. Configure via (checked in this order):
+```bash
+autopilot --roadmap --scan ~/Projects
+autopilot --roadmap --all --scan ~/Projects
+```
+
+### Portfolio overview
+
+```bash
+autopilot --portfolio --scan ~/Projects
+```
+
+Portfolio is multi-project only — there's no single-project equivalent. It builds a cross-project index with analysis by tech stack, current state, and prioritized quick wins. Projects with existing research summaries are indexed from those; the rest get a quick in-place assessment. Output is written to `<scan_dir>/.dev/portfolio.md`.
+
+### Plan and execute at scale
+
+```bash
+autopilot --plan --scan ~/Projects
+autopilot --scan ~/Projects              # judge + worker loop on all projects
+autopilot --auto-approve --scan ~/Projects
+autopilot --scan ~/Projects --dry-run
+```
+
+### Fork filtering
+
+When scanning, repos you don't own are skipped by default. Autopilot compares the git remote owner against your username. Configure via (checked in this order):
 
 ```bash
 export AUTOPILOT_GIT_USER=yourusername
@@ -158,54 +187,23 @@ git config --global autopilot.user yourusername
 # or have the gh CLI logged in (auto-detected)
 ```
 
-### Build a portfolio overview
+Use `--all` to include forks and clones.
 
-Builds a cross-project index with analysis by tech stack, state, and
-prioritized quick wins. Projects with existing research summaries are indexed
-from those; the rest get a quick assessment.
-
-```bash
-autopilot --portfolio --scan ~/Projects
-autopilot --portfolio --scan ~/Projects --dry-run
-```
-
-Output is written to `<scan_dir>/.dev/portfolio.md`.
-
-## Roadmap Mode
-
-The `--roadmap` flag builds a concrete shipping roadmap for each project,
-identifying the right target (prod launch, library publish, blog post, etc.),
-the steps needed to get there, and what Claude Code skills, plugins, or
-reference material would help execute it with high confidence.
-
-Uses `.dev/project-summary.md` as input if available; otherwise does a quick
-assessment of the project itself.
-
-```bash
-autopilot --roadmap /path/to/project
-autopilot --roadmap --scan ~/Projects        # all projects in directory
-autopilot --roadmap --all --scan ~/Projects  # include forks/clones
-```
-
-Output is written to `.dev/roadmap.md` in each project directory.
+---
 
 ## Manifest Format
 
-The manifest is markdown with YAML frontmatter at `.dev/autopilot.md`. Add
-`.dev/` to the project's `.gitignore` — it contains orchestration state, not
-source code.
+The manifest is a markdown file with YAML frontmatter at `.dev/autopilot.md`. Add `.dev/` to the project's `.gitignore` — it contains orchestration state, not source code.
 
 ### Frontmatter Fields
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | dir name | Project display name |
-| `approved` | bool | false | Human approval gate — must be set manually |
+| `approved` | bool | false | Human approval gate — set manually or via `--auto-approve` |
 | `status` | string | pending | pending / active / paused / completed / failed |
 | `max_budget_usd` | float | 5.0 | Budget cap per project run |
 | `max_task_attempts` | int | 3 | Max retries per task before marking failed |
-| `worktree` | bool | false | Reserved: git worktree isolation |
-| `branch_prefix` | string | autopilot | Reserved: prefix for task branches |
 
 ### Task Format
 
@@ -223,13 +221,38 @@ Tasks are standard markdown checkboxes under a `## Tasks` heading:
 - **IDs** are auto-derived by slugifying the title, or set explicitly with `[id: ...]`
 - **Dependencies** use `[depends: task-id-1, task-id-2]`
 - **Status** is tracked by the checkbox: `[ ]` = pending, `[x]` = done
-- **Retry metadata** (`[attempts: N]`, `[status: failed]`, `[error: ...]`) is
-  written by autopilot and persists across reloads — don't edit these manually
+- **Retry metadata** (`[attempts: N]`, `[status: failed]`, `[error: ...]`) is written by autopilot and persists across reloads — don't edit these manually
+
+### Full Example
+
+```markdown
+---
+name: "My Project"
+approved: false
+status: pending
+max_budget_usd: 5.0
+max_task_attempts: 3
+---
+
+# My Project
+
+Description of what you're building and any relevant context the worker agent needs.
+
+## Tasks
+
+- [ ] Set up the database schema [id: db-schema]
+- [ ] Implement the API endpoints [depends: db-schema]
+- [ ] Write tests [depends: db-schema]
+- [ ] Update README [depends: implement-api-endpoints]
+```
+
+---
 
 ## Agent Configs
 
-Agent roles are markdown files with YAML frontmatter in `agents/`. Each file
-defines a role's system prompt and SDK options.
+Agent roles are markdown files with YAML frontmatter in `src/autopilot/agents/`. Each file defines a role's system prompt and SDK options.
+
+Sessions appear in Claude Code's `/resume` history as `autopilot/projectname/role` (e.g., `autopilot/myproject/worker`, `autopilot/myproject/planner`) so you can trace which session did what.
 
 ### Frontmatter Fields
 
@@ -248,13 +271,14 @@ defines a role's system prompt and SDK options.
 - **judge** — evaluates manifest readiness, suggests improvements
 - **worker** — executes tasks: reads context, implements, tests, commits
 - **planner** — creates or improves task plans (`--plan` flag)
+- **critic** — reviews plans adversarially (`--plan --review`)
 - **researcher** — analyzes a project and writes `.dev/project-summary.md`
 - **portfolio** — builds a cross-project overview at `<scan_dir>/.dev/portfolio.md`
 - **roadmap** — builds a shipping roadmap per project at `.dev/roadmap.md`
 
 ### Custom Roles
 
-Create new agent roles by adding markdown files to `agents/`:
+Create new agent roles by adding markdown files to `agents/` (use `--agents-dir` to point to a custom directory):
 
 ```markdown
 ---
@@ -271,31 +295,18 @@ max_budget_usd: 0.50
 You review recently completed tasks for quality...
 ```
 
+---
+
 ## Design Decisions
 
 **Why the Agent SDK, not CLI pipes?**
-The Agent SDK wraps the Claude Code CLI programmatically — same tools, same
-capabilities, but with proper message streaming, error handling, and no
-heredoc escaping issues. Each `query()` call spawns a fresh Claude Code session.
+The Agent SDK wraps the Claude Code CLI programmatically — same tools, same capabilities, but with proper message streaming, error handling, and no heredoc escaping issues. Each `query()` call spawns a fresh Claude Code session.
 
 **Why sequential, not parallel?**
-These are hobby projects. Sequential execution is simpler to debug, cheaper
-(one session at a time), and avoids merge conflicts. Parallelism can be added
-later via git worktrees.
+These are hobby projects. Sequential execution is simpler to debug, cheaper (one session at a time), and avoids merge conflicts. Parallelism can be added later via git worktrees.
 
 **Why a human approval gate?**
-Autonomous agents need guardrails. The judge evaluates readiness, but a human
-must explicitly set `approved: true`. This prevents runaway execution on
-half-baked plans.
+Autonomous agents need guardrails. The judge evaluates readiness, but a human must explicitly set `approved: true` (or pass `--auto-approve`). This prevents runaway execution on half-baked plans.
 
 **Why markdown manifests, not YAML/JSON?**
-Readability. The manifest doubles as project documentation. YAML frontmatter
-gives structured config, while the markdown body provides rich context that
-both humans and agents can read naturally.
-
-## Future
-
-- Git worktree isolation for parallel task execution
-- Budget tracking across sessions
-- Webhook/notification on completion or failure
-- Specialised agents (test architect, dependency updater, etc.)
+Readability. The manifest doubles as project documentation. YAML frontmatter gives structured config, while the markdown body provides rich context that both humans and agents can read naturally.
