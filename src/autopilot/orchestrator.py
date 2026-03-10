@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from .agent import run_agent
+from .config import AutopilotConfig, load_config
 from .log import log
 from .manifest import (
     get_next_task,
@@ -17,8 +18,8 @@ from .prompts import (
     build_judge_prompt,
     build_planner_prompt,
     build_portfolio_prompt,
-    build_roadmap_prompt,
     build_researcher_prompt,
+    build_roadmap_prompt,
     build_worker_prompt,
     parse_judge_result,
 )
@@ -29,9 +30,22 @@ async def plan_project(
     agents_dir: Path,
     context_file: Path | None = None,
     review: bool = False,
+    cfg: AutopilotConfig | None = None,
 ) -> None:
     """Run the planner agent to create or improve a project manifest."""
     project_name = project_path.name
+    if cfg is None:
+        cfg = load_config(project_path)
+
+    # Without explicit context, lazily run research + roadmap if artifacts don't exist
+    if not context_file:
+        if not cfg.summary_path(project_path).exists():
+            log(project_name, "No context provided — running research first", "🔬")
+            await research_project(project_path, agents_dir, cfg=cfg)
+
+        if not cfg.roadmap_path(project_path).exists():
+            log(project_name, "No roadmap found — building roadmap before planning", "🗺️")
+            await roadmap_project(project_path, agents_dir, cfg=cfg)
 
     try:
         planner_config = load_agent_config("planner", agents_dir)
@@ -43,7 +57,9 @@ async def plan_project(
     log(project_name, f"Running planner...{ctx}", "📝")
 
     prompt = build_planner_prompt(project_path, context_file)
-    result = await run_agent(planner_config, project_path, prompt, project_name=project_name)
+    result = await run_agent(
+        planner_config, project_path, prompt, project_name=project_name, role_name="planner",
+    )
 
     if result.success:
         log(project_name, "Planning complete — see .dev/autopilot.md", "✅")
@@ -66,7 +82,7 @@ async def plan_project(
 
     critic_prompt = build_critic_prompt(project_path, context_file)
     critic_result = await run_agent(
-        critic_config, project_path, critic_prompt, project_name=project_name,
+        critic_config, project_path, critic_prompt, project_name=project_name, role_name="critic",
     )
 
     if critic_result.success:
@@ -79,19 +95,22 @@ async def plan_project(
 
 
 async def build_portfolio(
-    scan_dir: Path, project_paths: list[Path], agents_dir: Path,
+    scan_dir: Path,
+    project_paths: list[Path],
+    agents_dir: Path,
+    cfg: AutopilotConfig | None = None,
 ) -> None:
     """Run the portfolio agent to create a cross-project overview."""
+    if cfg is None:
+        cfg = load_config(scan_dir)
+
     try:
         portfolio_config = load_agent_config("portfolio", agents_dir)
     except FileNotFoundError:
         log("portfolio", "No portfolio agent config found", "❌")
         return
 
-    with_summary = sum(
-        1 for p in project_paths
-        if (p / ".dev" / "project-summary.md").exists()
-    )
+    with_summary = sum(1 for p in project_paths if cfg.summary_path(p).exists())
     log(
         "portfolio",
         f"Analyzing {len(project_paths)} projects "
@@ -100,10 +119,13 @@ async def build_portfolio(
     )
 
     prompt = build_portfolio_prompt(scan_dir, project_paths)
-    result = await run_agent(portfolio_config, scan_dir, prompt, project_name="portfolio")
+    result = await run_agent(
+        portfolio_config, scan_dir, prompt, project_name="portfolio", role_name="portfolio",
+    )
 
+    portfolio_out = cfg.portfolio_path(scan_dir)
     if result.success:
-        log("portfolio", f"Portfolio complete — see {scan_dir}/.dev/portfolio.md", "✅")
+        log("portfolio", f"Portfolio complete — see {portfolio_out}", "✅")
     else:
         log("portfolio", f"Portfolio failed: {result.error}", "❌")
 
@@ -111,9 +133,15 @@ async def build_portfolio(
         log("portfolio", f"Portfolio cost: ${result.cost_usd:.4f}", "💰")
 
 
-async def research_project(project_path: Path, agents_dir: Path) -> None:
+async def research_project(
+    project_path: Path,
+    agents_dir: Path,
+    cfg: AutopilotConfig | None = None,
+) -> None:
     """Run the researcher agent on a single project."""
     project_name = project_path.name
+    if cfg is None:
+        cfg = load_config(project_path)
 
     try:
         researcher_config = load_agent_config("researcher", agents_dir)
@@ -124,10 +152,13 @@ async def research_project(project_path: Path, agents_dir: Path) -> None:
     log(project_name, "Running project research...", "🔬")
 
     prompt = build_researcher_prompt(project_path)
-    result = await run_agent(researcher_config, project_path, prompt, project_name=project_name)
+    result = await run_agent(
+        researcher_config, project_path, prompt, project_name=project_name, role_name="researcher",
+    )
 
+    summary_out = cfg.summary_path(project_path)
     if result.success:
-        log(project_name, "Research complete — see .dev/project-summary.md", "✅")
+        log(project_name, f"Research complete — see {summary_out}", "✅")
     else:
         log(project_name, f"Research failed: {result.error}", "❌")
 
@@ -135,9 +166,15 @@ async def research_project(project_path: Path, agents_dir: Path) -> None:
         log(project_name, f"Research cost: ${result.cost_usd:.4f}", "💰")
 
 
-async def roadmap_project(project_path: Path, agents_dir: Path) -> None:
+async def roadmap_project(
+    project_path: Path,
+    agents_dir: Path,
+    cfg: AutopilotConfig | None = None,
+) -> None:
     """Run the roadmap agent on a single project."""
     project_name = project_path.name
+    if cfg is None:
+        cfg = load_config(project_path)
 
     try:
         roadmap_config = load_agent_config("roadmap", agents_dir)
@@ -145,15 +182,18 @@ async def roadmap_project(project_path: Path, agents_dir: Path) -> None:
         log(project_name, "No roadmap agent config found — skipping", "❌")
         return
 
-    has_summary = (project_path / ".dev" / "project-summary.md").exists()
+    has_summary = cfg.summary_path(project_path).exists()
     hint = " (from research summary)" if has_summary else " (no research summary — will assess)"
     log(project_name, f"Building shipping roadmap...{hint}", "🗺️")
 
     prompt = build_roadmap_prompt(project_path)
-    result = await run_agent(roadmap_config, project_path, prompt, project_name=project_name)
+    result = await run_agent(
+        roadmap_config, project_path, prompt, project_name=project_name, role_name="roadmap",
+    )
 
+    roadmap_out = cfg.roadmap_path(project_path)
     if result.success:
-        log(project_name, "Roadmap complete — see .dev/roadmap.md", "✅")
+        log(project_name, f"Roadmap complete — see {roadmap_out}", "✅")
     else:
         log(project_name, f"Roadmap failed: {result.error}", "❌")
 
@@ -161,13 +201,21 @@ async def roadmap_project(project_path: Path, agents_dir: Path) -> None:
         log(project_name, f"Roadmap cost: ${result.cost_usd:.4f}", "💰")
 
 
-async def process_project(project_path: Path, agents_dir: Path) -> None:
+async def process_project(
+    project_path: Path,
+    agents_dir: Path,
+    auto_approve: bool = False,
+    cfg: AutopilotConfig | None = None,
+) -> None:
     """Process a single project through the orchestration pipeline."""
     project_name = project_path.name
+    if cfg is None:
+        cfg = load_config(project_path)
 
-    manifest = load_manifest(project_path)
+    manifest = load_manifest(project_path, cfg=cfg)
     if manifest is None:
-        log(project_name, "No .dev/autopilot.md found — skipping", "⏭️")
+        manifest_hint = cfg.manifest_path(project_path)
+        log(project_name, f"No {manifest_hint} found — skipping", "⏭️")
         return
 
     log(project_name, f"Loaded manifest: {manifest.name} ({get_task_summary(manifest)})", "📋")
@@ -181,7 +229,7 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
         return
 
     if manifest.status == "stuck":
-        log(project_name, "Project is stuck — run 'autopilot --resume' to retry failed tasks", "🛑")
+        log(project_name, "Project is stuck — run 'autopilot run --resume' to retry", "🛑")
         return
 
     # --- Step 1: Check approval / run judge ---
@@ -197,7 +245,7 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
 
         judge_prompt = build_judge_prompt(manifest)
         result = await run_agent(
-            judge_config, project_path, judge_prompt, project_name=project_name,
+            judge_config, project_path, judge_prompt, project_name=project_name, role_name="judge",
         )
 
         if not result.success:
@@ -206,20 +254,26 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
 
         is_ready, feedback = parse_judge_result(result.output)
 
-        if is_ready:
-            log(project_name, "Judge verdict: READY", "✅")
-            log(project_name, "Set 'approved: true' in manifest to begin execution", "👉")
-        else:
-            log(project_name, "Judge verdict: NOT READY", "⚠️")
-
-        for line in feedback.split("\n")[:15]:
-            if line.strip():
-                print(f"           {line}")
-
         if result.cost_usd > 0:
             log(project_name, f"Judge cost: ${result.cost_usd:.4f}", "💰")
 
-        return  # Never auto-approve
+        if not is_ready:
+            log(project_name, "Judge verdict: NOT READY", "⚠️")
+            for line in feedback.split("\n")[:15]:
+                if line.strip():
+                    print(f"           {line}")
+            return
+
+        log(project_name, "Judge verdict: READY", "✅")
+
+        if auto_approve:
+            update_manifest_frontmatter(manifest, {"approved": True})
+            log(project_name, "Auto-approved — proceeding to task execution", "🚀")
+            manifest = load_manifest(project_path, cfg=cfg) or manifest
+            # Fall through to task execution below
+        else:
+            log(project_name, "Set 'approved: true' in manifest to begin execution", "👉")
+            return
 
     # --- Step 2: Execute tasks sequentially ---
 
@@ -246,13 +300,16 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
                     )
                 ]
                 if stuck_tasks:
-                    log(project_name, f"Stuck — {len(stuck_tasks)} task(s) exceeded max attempts", "🛑")
+                    n = len(stuck_tasks)
+                    log(project_name, f"Stuck — {n} task(s) exceeded max attempts", "🛑")
                     for t in stuck_tasks:
                         log(project_name, f"  → {t.title} ({t.attempts} attempts)", "")
                 elif blocked_tasks:
-                    log(project_name, f"Blocked — {len(blocked_tasks)} task(s) have unsatisfied deps", "🛑")
+                    n = len(blocked_tasks)
+                    log(project_name, f"Blocked — {n} task(s) have unsatisfied deps", "🛑")
                 else:
-                    log(project_name, f"No runnable tasks remain ({get_task_summary(manifest)})", "🛑")
+                    summary = get_task_summary(manifest)
+                    log(project_name, f"No runnable tasks remain ({summary})", "🛑")
 
                 update_manifest_frontmatter(manifest, {"status": "stuck"})
             break
@@ -275,7 +332,8 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
 
         worker_prompt = build_worker_prompt(manifest, task)
         result = await run_agent(
-            worker_config, project_path, worker_prompt, project_name=project_name,
+            worker_config, project_path, worker_prompt,
+            project_name=project_name, role_name="worker",
         )
 
         if result.cost_usd > 0:
@@ -284,7 +342,7 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
         new_attempts = task.attempts + 1
 
         if result.success:
-            updated_manifest = load_manifest(project_path)
+            updated_manifest = load_manifest(project_path, cfg=cfg)
             if updated_manifest:
                 updated_task = next(
                     (t for t in updated_manifest.tasks if t.id == task.id), None
@@ -302,7 +360,7 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
                         error="Worker completed without marking task done",
                         attempts=new_attempts,
                     )
-                    manifest = load_manifest(project_path) or manifest
+                    manifest = load_manifest(project_path, cfg=cfg) or manifest
             else:
                 log(project_name, "Could not reload manifest after task", "❌")
                 break
@@ -315,8 +373,9 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
                     manifest, task.id, "failed",
                     error=error_msg, attempts=new_attempts,
                 )
+                max_att = manifest.max_task_attempts
                 log(project_name,
-                    f"Task \"{task.title}\" exceeded {manifest.max_task_attempts} attempts — marking failed",
+                    f"Task \"{task.title}\" exceeded {max_att} attempts — marking failed",
                     "🛑")
             else:
                 update_task_status(
@@ -327,4 +386,4 @@ async def process_project(project_path: Path, agents_dir: Path) -> None:
                     f"Will retry ({new_attempts}/{manifest.max_task_attempts})",
                     "🔄")
 
-            manifest = load_manifest(project_path) or manifest
+            manifest = load_manifest(project_path, cfg=cfg) or manifest

@@ -4,11 +4,14 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from .models import AgentConfig, Manifest, Task
+
+if TYPE_CHECKING:
+    from .config import AutopilotConfig
 
 MANIFEST_DIR = ".dev"
 MANIFEST_FILENAME = "autopilot.md"
@@ -110,9 +113,12 @@ def parse_tasks(content: str) -> list[Task]:
     return tasks
 
 
-def load_manifest(path: Path) -> Manifest | None:
+def load_manifest(path: Path, cfg: "AutopilotConfig | None" = None) -> Manifest | None:
     """Load and parse a project manifest file."""
-    manifest_path = path / MANIFEST_DIR / MANIFEST_FILENAME
+    if cfg is not None:
+        manifest_path = cfg.manifest_path(path)
+    else:
+        manifest_path = path / MANIFEST_DIR / MANIFEST_FILENAME
     if not manifest_path.exists():
         return None
 
@@ -290,11 +296,15 @@ def reset_stuck_project(project_path: Path) -> bool:
     return True
 
 
-def discover_projects(scan_dir: Path) -> list[Path]:
+def discover_projects(scan_dir: Path, cfg: "AutopilotConfig | None" = None) -> list[Path]:
     """Find all directories containing a manifest under scan_dir."""
     projects = []
     for child in sorted(scan_dir.iterdir()):
-        if child.is_dir() and (child / MANIFEST_DIR / MANIFEST_FILENAME).exists():
+        if cfg is not None:
+            manifest_exists = cfg.manifest_path(child).exists()
+        else:
+            manifest_exists = (child / MANIFEST_DIR / MANIFEST_FILENAME).exists()
+        if child.is_dir() and manifest_exists:
             projects.append(child)
     return projects
 
