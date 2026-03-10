@@ -10,8 +10,9 @@ Autopilot is an autonomous project session orchestrator. It reads project manife
 
 All autopilot working files within a project live under `.dev/`:
 - `.dev/autopilot.md` — project manifest (tasks, config, plan)
-- `.dev/research/summary.md` — researcher agent output
+- `.dev/project-summary.md` — researcher agent output
 - `<scan_dir>/.dev/portfolio.md` — portfolio agent output
+- `.dev/roadmap.md` — roadmap agent output
 - Projects should add `.dev/` to their `.gitignore`
 
 ## Development Commands
@@ -28,6 +29,8 @@ autopilot --plan /path/to/project       # Generate or improve a manifest
 autopilot --plan --context TODO.md .    # Plan with a context file
 autopilot --research /path/to/project   # Research a project
 autopilot --research --scan ~/Projects  # Research all projects
+autopilot --roadmap /path/to/project    # Build shipping roadmap
+autopilot --roadmap --scan ~/Projects  # Roadmap all projects
 autopilot --portfolio --scan ~/Projects # Portfolio overview
 autopilot --agents-dir /path/to/agents  # Use custom agent configs
 python -m autopilot                     # Alternative entry point
@@ -49,20 +52,22 @@ The codebase is a single Python package at `src/autopilot/`.
 
 **Plan mode** (`--plan`): Runs the planner agent to create or improve `.dev/autopilot.md`. Accepts an optional `--context` file (TODO list, spec, etc.) passed to `build_planner_prompt()`.
 
-**Research mode** (`--research`): Runs the researcher agent on a project and writes findings to `.dev/research/summary.md`. Doesn't require a manifest — discovers projects by common markers (.git, package.json, pyproject.toml, etc.).
+**Research mode** (`--research`): Runs the researcher agent on a project and writes findings to `.dev/project-summary.md`. Doesn't require a manifest — discovers projects by common markers (.git, package.json, pyproject.toml, etc.). If a summary already exists, the agent compares the stored branch/commit hash against the current state: minimal changes → update only changed fields; significant changes → full re-analysis.
 
 **Portfolio mode** (`--portfolio`): Runs the portfolio agent across all discovered projects and writes `<scan_dir>/.dev/portfolio.md`. Projects with existing research summaries are indexed from those; others get a quick assessment.
 
+**Roadmap mode** (`--roadmap`): Runs the roadmap agent per project and writes `.dev/roadmap.md`. Reads the research summary if available; otherwise does a quick assessment. Identifies the right shipping target, concrete steps, and relevant Claude Code skills/plugins/reference material.
+
 **Module responsibilities:**
 - `cli.py` — argparse CLI, async entry point, project discovery, fork-filtering logic
-- `orchestrator.py` — judge/worker/planner/researcher/portfolio pipeline, task execution loop, retry logic
+- `orchestrator.py` — judge/worker/planner/researcher/portfolio/roadmap pipeline, task execution loop, retry logic
 - `manifest.py` — parse/load/write manifests (YAML frontmatter + markdown checkboxes), task dependency resolution, agent config loading, git user detection
-- `prompts.py` — prompt builders for all five agent roles, judge verdict parsing
+- `prompts.py` — prompt builders for all six agent roles, judge verdict parsing
 - `agent.py` — thin wrapper around `claude_agent_sdk.query()`, streams messages, tracks cost
 - `models.py` — dataclasses: `Task`, `Manifest`, `AgentConfig`, `AgentResult`
 - `log.py` — timestamped status logging
 
-**Agent role configs** (`src/autopilot/agents/*.md`): Markdown files with YAML frontmatter defining system prompts, allowed tools, budget, and permission mode for each role: `judge`, `worker`, `planner`, `researcher`, `portfolio`.
+**Agent role configs** (`src/autopilot/agents/*.md`): Markdown files with YAML frontmatter defining system prompts, allowed tools, budget, and permission mode for each role: `judge`, `worker`, `planner`, `researcher`, `portfolio`, `roadmap`.
 
 ## Key Patterns
 

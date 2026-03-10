@@ -90,9 +90,9 @@ def build_researcher_prompt(project_path: Path) -> str:
         Explore the codebase, git history, dependencies, and documentation to
         understand what this project is, its current state, and its potential.
 
-        Write your findings to `.dev/research/summary.md` following the format
-        described in your system prompt. Create the `.dev/research/` directory
-        if it doesn't exist.
+        Write your findings to `.dev/project-summary.md` following the format
+        described in your system prompt. Create the `.dev/` directory if it
+        doesn't exist.
     """)
 
 
@@ -101,7 +101,7 @@ def build_portfolio_prompt(scan_dir: Path, project_paths: list[Path]) -> str:
     with_summary = []
     without_summary = []
     for p in project_paths:
-        if (p / ".dev" / "research" / "summary.md").exists():
+        if (p / ".dev" / "project-summary.md").exists():
             with_summary.append(p.name)
         else:
             without_summary.append(p.name)
@@ -117,7 +117,7 @@ def build_portfolio_prompt(scan_dir: Path, project_paths: list[Path]) -> str:
     if with_summary:
         lines.append(f"Projects WITH research summaries ({len(with_summary)}):")
         for name in with_summary:
-            lines.append(f"  - {name} (read {name}/.dev/research/summary.md)")
+            lines.append(f"  - {name} (read {name}/.dev/project-summary.md)")
         lines.append("")
 
     if without_summary:
@@ -167,6 +167,53 @@ def build_planner_prompt(project_path: Path, context_file: Path | None = None) -
         ]
 
     return "\n".join(lines)
+
+
+def build_critic_prompt(project_path: Path, context_file: Path | None = None) -> str:
+    """Build the prompt for the critic agent."""
+    lines = [
+        f"Review the task plan at `.dev/autopilot.md` for the project at `{project_path}`.",
+        "",
+        "The plan was written by a planner agent. Your job is to find what it missed",
+        "and fix it directly in the manifest. Follow the process in your system prompt.",
+    ]
+
+    if context_file:
+        try:
+            content = context_file.read_text(encoding="utf-8")
+        except OSError:
+            content = f"(could not read {context_file})"
+
+        lines += [
+            "",
+            "The original planning context was:",
+            f"Source: `{context_file}`",
+            "",
+            "--- CONTEXT START ---",
+            content,
+            "--- CONTEXT END ---",
+            "",
+            "Use this to understand what the plan was trying to achieve when checking for blind spots.",
+        ]
+
+    return "\n".join(lines)
+
+
+def build_roadmap_prompt(project_path: Path) -> str:
+    """Build the prompt for the roadmap agent."""
+    has_summary = (project_path / ".dev" / "project-summary.md").exists()
+    summary_hint = (
+        "A research summary exists at `.dev/project-summary.md` — read it first."
+        if has_summary
+        else "No research summary exists — do a quick assessment of the project before planning."
+    )
+    return textwrap.dedent(f"""\
+        Create a shipping roadmap for the project at `{project_path}`.
+
+        {summary_hint}
+
+        Write the roadmap to `.dev/roadmap.md` following the format in your system prompt.
+    """)
 
 
 def parse_judge_result(output: str) -> tuple[bool, str]:

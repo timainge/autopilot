@@ -13,9 +13,11 @@ from .manifest import (
     update_task_status,
 )
 from .prompts import (
+    build_critic_prompt,
     build_judge_prompt,
     build_planner_prompt,
     build_portfolio_prompt,
+    build_roadmap_prompt,
     build_researcher_prompt,
     build_worker_prompt,
     parse_judge_result,
@@ -23,7 +25,10 @@ from .prompts import (
 
 
 async def plan_project(
-    project_path: Path, agents_dir: Path, context_file: Path | None = None,
+    project_path: Path,
+    agents_dir: Path,
+    context_file: Path | None = None,
+    review: bool = False,
 ) -> None:
     """Run the planner agent to create or improve a project manifest."""
     project_name = project_path.name
@@ -48,6 +53,30 @@ async def plan_project(
     if result.cost_usd > 0:
         log(project_name, f"Planner cost: ${result.cost_usd:.4f}", "💰")
 
+    if not result.success or not review:
+        return
+
+    try:
+        critic_config = load_agent_config("critic", agents_dir)
+    except FileNotFoundError:
+        log(project_name, "No critic agent config found — skipping review", "⚠️")
+        return
+
+    log(project_name, "Running critic review...", "🔍")
+
+    critic_prompt = build_critic_prompt(project_path, context_file)
+    critic_result = await run_agent(
+        critic_config, project_path, critic_prompt, project_name=project_name,
+    )
+
+    if critic_result.success:
+        log(project_name, "Critic review complete", "✅")
+    else:
+        log(project_name, f"Critic review failed: {critic_result.error}", "❌")
+
+    if critic_result.cost_usd > 0:
+        log(project_name, f"Critic cost: ${critic_result.cost_usd:.4f}", "💰")
+
 
 async def build_portfolio(
     scan_dir: Path, project_paths: list[Path], agents_dir: Path,
@@ -61,7 +90,7 @@ async def build_portfolio(
 
     with_summary = sum(
         1 for p in project_paths
-        if (p / ".dev" / "research" / "summary.md").exists()
+        if (p / ".dev" / "project-summary.md").exists()
     )
     log(
         "portfolio",
@@ -98,12 +127,38 @@ async def research_project(project_path: Path, agents_dir: Path) -> None:
     result = await run_agent(researcher_config, project_path, prompt, project_name=project_name)
 
     if result.success:
-        log(project_name, "Research complete — see .dev/research/summary.md", "✅")
+        log(project_name, "Research complete — see .dev/project-summary.md", "✅")
     else:
         log(project_name, f"Research failed: {result.error}", "❌")
 
     if result.cost_usd > 0:
         log(project_name, f"Research cost: ${result.cost_usd:.4f}", "💰")
+
+
+async def roadmap_project(project_path: Path, agents_dir: Path) -> None:
+    """Run the roadmap agent on a single project."""
+    project_name = project_path.name
+
+    try:
+        roadmap_config = load_agent_config("roadmap", agents_dir)
+    except FileNotFoundError:
+        log(project_name, "No roadmap agent config found — skipping", "❌")
+        return
+
+    has_summary = (project_path / ".dev" / "project-summary.md").exists()
+    hint = " (from research summary)" if has_summary else " (no research summary — will assess)"
+    log(project_name, f"Building shipping roadmap...{hint}", "🗺️")
+
+    prompt = build_roadmap_prompt(project_path)
+    result = await run_agent(roadmap_config, project_path, prompt, project_name=project_name)
+
+    if result.success:
+        log(project_name, "Roadmap complete — see .dev/roadmap.md", "✅")
+    else:
+        log(project_name, f"Roadmap failed: {result.error}", "❌")
+
+    if result.cost_usd > 0:
+        log(project_name, f"Roadmap cost: ${result.cost_usd:.4f}", "💰")
 
 
 async def process_project(project_path: Path, agents_dir: Path) -> None:

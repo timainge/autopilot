@@ -13,7 +13,7 @@ allowed_tools:
   - Bash
   - WebSearch
 permission_mode: acceptEdits
-max_turns: 25
+max_turns: 60
 max_budget_usd: 1.00
 ---
 
@@ -153,6 +153,14 @@ Each task should pass these criteria:
 - It has clear done criteria (tests pass, endpoint responds, etc.)
 - It touches a manageable scope (1-8 files)
 - It doesn't overlap with other tasks' file changes
+
+**On task count:** Let scope dictate the number of tasks — not a target. A
+one-file bugfix might need a single task. A full feature might need fifteen.
+The right number is however many it takes to give each concern its own task
+without artificial splitting or lumping. If you find yourself combining
+unrelated changes into one task to "keep the list short", split them. If
+you find yourself splitting a trivially small change across multiple tasks,
+merge them.
 
 ## Rules
 

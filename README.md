@@ -87,10 +87,19 @@ autopilot --plan /path/to/project
 
 # Seed with an existing TODO list, spec, or planning doc
 autopilot --plan --context /path/to/TODO.md /path/to/project
+
+# Run a second-pass critic agent to verify and improve the plan
+autopilot --plan --review /path/to/project
+autopilot --plan --review --context /path/to/TODO.md /path/to/project
 ```
 
 The planner explores the codebase and writes `.dev/autopilot.md` with structured
 tasks. `--context` accepts any file — a TODO list, design doc, meeting notes, etc.
+
+`--review` runs a critic agent after the planner completes. The critic reads the
+plan adversarially — verifying file references exist, checking for missing
+dependencies, and sharpening vague task descriptions. It edits the manifest
+directly. Adds roughly 50% more cost but catches blind spots the planner missed.
 
 ### 3. Evaluate and approve
 
@@ -125,7 +134,7 @@ These are standalone modes for exploring projects without a manifest.
 ### Research a project
 
 Runs the researcher agent to analyze a project and write findings to
-`.dev/research/summary.md`:
+`.dev/project-summary.md`:
 
 ```bash
 autopilot --research /path/to/project
@@ -133,6 +142,11 @@ autopilot --research --scan ~/Projects        # all projects in directory
 autopilot --research --all --scan ~/Projects  # include forks/clones
 autopilot --research --scan ~/Projects --dry-run
 ```
+
+Re-running on a project with an existing summary is safe and cheap — the agent
+checks the branch and commit hash stored in the summary against the current
+state. If little has changed it updates only the date and any changed fields;
+if there are significant changes it does a full re-analysis.
 
 When scanning, forks and cloned repos are skipped by comparing the git remote
 owner against your username. Configure via (checked in this order):
@@ -156,6 +170,24 @@ autopilot --portfolio --scan ~/Projects --dry-run
 ```
 
 Output is written to `<scan_dir>/.dev/portfolio.md`.
+
+## Roadmap Mode
+
+The `--roadmap` flag builds a concrete shipping roadmap for each project,
+identifying the right target (prod launch, library publish, blog post, etc.),
+the steps needed to get there, and what Claude Code skills, plugins, or
+reference material would help execute it with high confidence.
+
+Uses `.dev/project-summary.md` as input if available; otherwise does a quick
+assessment of the project itself.
+
+```bash
+autopilot --roadmap /path/to/project
+autopilot --roadmap --scan ~/Projects        # all projects in directory
+autopilot --roadmap --all --scan ~/Projects  # include forks/clones
+```
+
+Output is written to `.dev/roadmap.md` in each project directory.
 
 ## Manifest Format
 
@@ -216,8 +248,9 @@ defines a role's system prompt and SDK options.
 - **judge** — evaluates manifest readiness, suggests improvements
 - **worker** — executes tasks: reads context, implements, tests, commits
 - **planner** — creates or improves task plans (`--plan` flag)
-- **researcher** — analyzes a project and writes `.dev/research/summary.md`
+- **researcher** — analyzes a project and writes `.dev/project-summary.md`
 - **portfolio** — builds a cross-project overview at `<scan_dir>/.dev/portfolio.md`
+- **roadmap** — builds a shipping roadmap per project at `.dev/roadmap.md`
 
 ### Custom Roles
 

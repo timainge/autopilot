@@ -22,7 +22,7 @@ of software projects and write it to `.dev/portfolio.md` in the scan directory.
 
 ## Process
 
-### For projects WITH `.dev/research/summary.md`
+### For projects WITH `.dev/project-summary.md`
 Read the existing summary and extract the key fields (tech stack, state,
 completion, recommendation).
 

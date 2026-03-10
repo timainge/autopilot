@@ -17,7 +17,7 @@ from .manifest import (
     load_manifest,
     reset_stuck_project,
 )
-from .orchestrator import build_portfolio, plan_project, process_project, research_project
+from .orchestrator import build_portfolio, plan_project, process_project, research_project, roadmap_project
 
 
 def _default_agents_dir() -> Path:
@@ -58,6 +58,11 @@ def parse_args() -> argparse.Namespace:
         help="File to use as additional context for planning (e.g. existing TODO list)",
     )
     parser.add_argument(
+        "--review",
+        action="store_true",
+        help="Run a critic agent after planning to verify and improve the plan (use with --plan)",
+    )
+    parser.add_argument(
         "--research",
         action="store_true",
         help="Run the researcher agent to analyze projects instead of processing tasks",
@@ -66,6 +71,11 @@ def parse_args() -> argparse.Namespace:
         "--portfolio",
         action="store_true",
         help="Build a portfolio overview of all scanned projects",
+    )
+    parser.add_argument(
+        "--roadmap",
+        action="store_true",
+        help="Build a shipping roadmap for each project (uses research summary if available)",
     )
     parser.add_argument(
         "--all",
@@ -91,7 +101,7 @@ async def async_main() -> None:
 
     project_paths: list[Path] = []
 
-    broad_mode = args.research or args.portfolio or args.plan
+    broad_mode = args.research or args.portfolio or args.plan or args.roadmap
 
     if args.portfolio and not args.scan and not args.projects:
         print("  --portfolio requires --scan or explicit project paths.")
@@ -113,7 +123,7 @@ async def async_main() -> None:
         project_paths = [Path(p).expanduser().resolve() for p in args.projects]
     else:
         cwd = Path.cwd()
-        if args.research or args.plan:
+        if args.research or args.plan or args.roadmap:
             project_paths = [cwd]
         elif (cwd / ".dev" / "autopilot.md").exists():
             project_paths = [cwd]
@@ -146,6 +156,8 @@ async def async_main() -> None:
         mode_label = "Portfolio"
     elif args.research:
         mode_label = "Research"
+    elif args.roadmap:
+        mode_label = "Roadmap"
     elif args.plan:
         mode_label = "Plan"
     else:
@@ -163,7 +175,7 @@ async def async_main() -> None:
         print(f"  [DRY RUN MODE — no agents will be executed ({dry_label})]\n")
         for path in project_paths:
             if broad_mode:
-                has_summary = (path / ".dev" / "research" / "summary.md").exists()
+                has_summary = (path / ".dev" / "project-summary.md").exists()
                 tag = "has summary" if has_summary else "no summary"
                 print(f"  {path.name}: would {dry_label} ({tag})")
             else:
@@ -188,9 +200,11 @@ async def async_main() -> None:
                 log(str(project_path), "Not a directory — skipping", "⏭️")
                 continue
             if args.plan:
-                await plan_project(project_path, agents_dir, context_file)
+                await plan_project(project_path, agents_dir, context_file, review=args.review)
             elif args.research:
                 await research_project(project_path, agents_dir)
+            elif args.roadmap:
+                await roadmap_project(project_path, agents_dir)
             else:
                 if args.resume:
                     if reset_stuck_project(project_path):
