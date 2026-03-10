@@ -15,6 +15,7 @@ async def run_agent(
     cwd: Path,
     prompt: str,
     project_name: str = "",
+    role_name: str = "",
 ) -> AgentResult:
     """Execute an agent session using the Claude Code SDK's query()."""
     try:
@@ -30,6 +31,10 @@ async def run_agent(
         allowed_tools=agent_config.allowed_tools,
         cwd=str(cwd),
     )
+
+    # Session naming: makes sessions appear as "autopilot/{project}/{role}" in /resume history
+    if role_name:
+        options.extra_args = {"session-name": f"autopilot/{project_name or cwd.name}/{role_name}"}
 
     if agent_config.permission_mode and agent_config.permission_mode != "default":
         options.permission_mode = agent_config.permission_mode
