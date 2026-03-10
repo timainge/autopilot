@@ -135,9 +135,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     # roadmap subcommand
-    roadmap_p = subparsers.add_parser(
-        "roadmap", help="Build a shipping roadmap for each project"
-    )
+    roadmap_p = subparsers.add_parser("roadmap", help="Build a shipping roadmap for each project")
     _add_common(roadmap_p)
     roadmap_p.add_argument(
         "--all",
@@ -249,8 +247,7 @@ async def async_main() -> None:
                 if manifest:
                     status = "approved" if manifest.approved else "needs review"
                     print(
-                        f"  {path.name}: {manifest.name}"
-                        f" — {status} — {get_task_summary(manifest)}"
+                        f"  {path.name}: {manifest.name} — {status} — {get_task_summary(manifest)}"
                     )
                 else:
                     print(f"  {path.name}: no manifest")

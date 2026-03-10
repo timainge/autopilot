@@ -193,7 +193,7 @@ def build_critic_prompt(project_path: Path, context_file: Path | None = None) ->
             content,
             "--- CONTEXT END ---",
             "",
-            "Use this to understand what the plan was trying to achieve when checking for blind spots.",
+            "Use this to understand what the plan was trying to achieve when checking for blind spots.",  # noqa: E501
         ]
 
     return "\n".join(lines)

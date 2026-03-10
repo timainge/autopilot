@@ -58,7 +58,11 @@ async def plan_project(
 
     prompt = build_planner_prompt(project_path, context_file)
     result = await run_agent(
-        planner_config, project_path, prompt, project_name=project_name, role_name="planner",
+        planner_config,
+        project_path,
+        prompt,
+        project_name=project_name,
+        role_name="planner",
     )
 
     if result.success:
@@ -82,7 +86,11 @@ async def plan_project(
 
     critic_prompt = build_critic_prompt(project_path, context_file)
     critic_result = await run_agent(
-        critic_config, project_path, critic_prompt, project_name=project_name, role_name="critic",
+        critic_config,
+        project_path,
+        critic_prompt,
+        project_name=project_name,
+        role_name="critic",
     )
 
     if critic_result.success:
@@ -113,14 +121,17 @@ async def build_portfolio(
     with_summary = sum(1 for p in project_paths if cfg.summary_path(p).exists())
     log(
         "portfolio",
-        f"Analyzing {len(project_paths)} projects "
-        f"({with_summary} with research summaries)...",
+        f"Analyzing {len(project_paths)} projects ({with_summary} with research summaries)...",
         "📊",
     )
 
     prompt = build_portfolio_prompt(scan_dir, project_paths)
     result = await run_agent(
-        portfolio_config, scan_dir, prompt, project_name="portfolio", role_name="portfolio",
+        portfolio_config,
+        scan_dir,
+        prompt,
+        project_name="portfolio",
+        role_name="portfolio",
     )
 
     portfolio_out = cfg.portfolio_path(scan_dir)
@@ -153,7 +164,11 @@ async def research_project(
 
     prompt = build_researcher_prompt(project_path)
     result = await run_agent(
-        researcher_config, project_path, prompt, project_name=project_name, role_name="researcher",
+        researcher_config,
+        project_path,
+        prompt,
+        project_name=project_name,
+        role_name="researcher",
     )
 
     summary_out = cfg.summary_path(project_path)
@@ -188,7 +203,11 @@ async def roadmap_project(
 
     prompt = build_roadmap_prompt(project_path)
     result = await run_agent(
-        roadmap_config, project_path, prompt, project_name=project_name, role_name="roadmap",
+        roadmap_config,
+        project_path,
+        prompt,
+        project_name=project_name,
+        role_name="roadmap",
     )
 
     roadmap_out = cfg.roadmap_path(project_path)
@@ -245,7 +264,11 @@ async def process_project(
 
         judge_prompt = build_judge_prompt(manifest)
         result = await run_agent(
-            judge_config, project_path, judge_prompt, project_name=project_name, role_name="judge",
+            judge_config,
+            project_path,
+            judge_prompt,
+            project_name=project_name,
+            role_name="judge",
         )
 
         if not result.success:
@@ -289,12 +312,15 @@ async def process_project(
                 log(project_name, f"All tasks complete! ({get_task_summary(manifest)})", "🎉")
             else:
                 stuck_tasks = [
-                    t for t in manifest.tasks
+                    t
+                    for t in manifest.tasks
                     if t.status != "done" and t.attempts >= manifest.max_task_attempts
                 ]
                 blocked_tasks = [
-                    t for t in manifest.tasks
-                    if t.status == "pending" and not all(
+                    t
+                    for t in manifest.tasks
+                    if t.status == "pending"
+                    and not all(
                         dep in {tt.id for tt in manifest.tasks if tt.status == "done"}
                         for dep in t.depends
                     )
@@ -314,15 +340,13 @@ async def process_project(
                 update_manifest_frontmatter(manifest, {"status": "stuck"})
             break
 
-        task_idx = next(
-            (i for i, t in enumerate(manifest.tasks) if t.id == task.id), 0
-        )
+        task_idx = next((i for i, t in enumerate(manifest.tasks) if t.id == task.id), 0)
         total = len(manifest.tasks)
         attempt_str = f" (attempt {task.attempts + 1})" if task.attempts > 0 else ""
 
-        log(project_name,
-            f"Starting task {task_idx + 1}/{total}: \"{task.title}\"{attempt_str}",
-            "🔧")
+        log(
+            project_name, f'Starting task {task_idx + 1}/{total}: "{task.title}"{attempt_str}', "🔧"
+        )
 
         try:
             worker_config = load_agent_config("worker", agents_dir)
@@ -332,8 +356,11 @@ async def process_project(
 
         worker_prompt = build_worker_prompt(manifest, task)
         result = await run_agent(
-            worker_config, project_path, worker_prompt,
-            project_name=project_name, role_name="worker",
+            worker_config,
+            project_path,
+            worker_prompt,
+            project_name=project_name,
+            role_name="worker",
         )
 
         if result.cost_usd > 0:
@@ -344,19 +371,21 @@ async def process_project(
         if result.success:
             updated_manifest = load_manifest(project_path, cfg=cfg)
             if updated_manifest:
-                updated_task = next(
-                    (t for t in updated_manifest.tasks if t.id == task.id), None
-                )
+                updated_task = next((t for t in updated_manifest.tasks if t.id == task.id), None)
                 if updated_task and updated_task.status == "done":
-                    log(project_name, f"Task complete: \"{task.title}\"", "✅")
+                    log(project_name, f'Task complete: "{task.title}"', "✅")
                     manifest = updated_manifest
                     continue
                 else:
-                    log(project_name,
+                    log(
+                        project_name,
                         "Worker finished but task not marked done — treating as incomplete",
-                        "⚠️")
+                        "⚠️",
+                    )
                     update_task_status(
-                        manifest, task.id, "pending",
+                        manifest,
+                        task.id,
+                        "pending",
                         error="Worker completed without marking task done",
                         attempts=new_attempts,
                     )
@@ -370,20 +399,26 @@ async def process_project(
 
             if new_attempts >= manifest.max_task_attempts:
                 update_task_status(
-                    manifest, task.id, "failed",
-                    error=error_msg, attempts=new_attempts,
+                    manifest,
+                    task.id,
+                    "failed",
+                    error=error_msg,
+                    attempts=new_attempts,
                 )
                 max_att = manifest.max_task_attempts
-                log(project_name,
-                    f"Task \"{task.title}\" exceeded {max_att} attempts — marking failed",
-                    "🛑")
+                log(
+                    project_name,
+                    f'Task "{task.title}" exceeded {max_att} attempts — marking failed',
+                    "🛑",
+                )
             else:
                 update_task_status(
-                    manifest, task.id, "pending",
-                    error=error_msg, attempts=new_attempts,
+                    manifest,
+                    task.id,
+                    "pending",
+                    error=error_msg,
+                    attempts=new_attempts,
                 )
-                log(project_name,
-                    f"Will retry ({new_attempts}/{manifest.max_task_attempts})",
-                    "🔄")
+                log(project_name, f"Will retry ({new_attempts}/{manifest.max_task_attempts})", "🔄")
 
             manifest = load_manifest(project_path, cfg=cfg) or manifest
