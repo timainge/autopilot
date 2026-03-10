@@ -1,6 +1,9 @@
 # Autopilot local dev/orchestration state
 .dev/
 
+# MkDocs build output
+site/
+
 # Python
 __pycache__/
 *.py[cod]
