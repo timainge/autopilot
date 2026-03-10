@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import importlib.metadata
 import importlib.resources
 import os
 import sys
@@ -81,7 +82,11 @@ def parse_args() -> argparse.Namespace:
         prog="autopilot",
         description="Autonomous project session orchestrator for Claude Code",
     )
-    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {importlib.metadata.version('claude-autopilot')}",
+    )
 
     subparsers = parser.add_subparsers(dest="subcommand")
     subparsers.required = True
