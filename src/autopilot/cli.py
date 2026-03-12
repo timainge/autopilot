@@ -22,6 +22,7 @@ from .manifest import (
 )
 from .orchestrator import (
     build_portfolio,
+    deep_research_project,
     plan_project,
     process_project,
     research_project,
@@ -30,7 +31,7 @@ from .orchestrator import (
 )
 
 SUBCOMMANDS = {"run", "plan", "research", "roadmap", "portfolio", "strategize"}
-_VALUE_FLAGS = {"--scan", "--agents-dir", "--context"}  # flags that consume next arg
+_VALUE_FLAGS = {"--scan", "--agents-dir", "--context", "--topic", "--topic-file"}
 _TERMINAL_FLAGS = {"--version", "--help", "-h"}  # let top-level parser handle these
 
 
@@ -134,6 +135,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Include all projects (don't skip forks/clones)",
     )
+    research_p.add_argument("--deep", action="store_true",
+        help="Run deep project analysis (more thorough, higher cost)")
+    research_p.add_argument("--topic", type=str, default=None,
+        help="Research a specific question or topic")
+    research_p.add_argument("--topic-file", type=Path, default=None,
+        help="File containing a research brief for topic research")
 
     # roadmap subcommand
     roadmap_p = subparsers.add_parser("roadmap", help="Build a shipping roadmap for each project")
@@ -178,6 +185,11 @@ def parse_args() -> argparse.Namespace:
 
 async def async_main() -> None:
     args = parse_args()
+    if args.subcommand == "research" and getattr(args, "topic", None) and getattr(
+        args, "topic_file", None
+    ):
+        print("  --topic and --topic-file are mutually exclusive")
+        sys.exit(1)
     agents_dir = args.agents_dir or _default_agents_dir()
 
     # Load global config (no project path) and apply env/flag defaults
@@ -277,6 +289,9 @@ async def async_main() -> None:
         context_file = getattr(args, "context", None)
         if context_file:
             context_file = context_file.expanduser().resolve()
+        topic_file = getattr(args, "topic_file", None)
+        if topic_file:
+            topic_file = topic_file.expanduser().resolve()
         for project_path in project_paths:
             if not project_path.is_dir():
                 log(str(project_path), "Not a directory — skipping", "⏭️")
@@ -288,7 +303,15 @@ async def async_main() -> None:
                         project_path, agents_dir, context_file, review=args.review, cfg=cfg
                     )
                 case "research":
-                    await research_project(project_path, agents_dir, cfg=cfg)
+                    if args.deep or getattr(args, "topic", None) or topic_file:
+                        await deep_research_project(
+                            project_path, agents_dir,
+                            topic=getattr(args, "topic", None),
+                            topic_file=topic_file,
+                            cfg=cfg,
+                        )
+                    else:
+                        await research_project(project_path, agents_dir, cfg=cfg)
                 case "roadmap":
                     await roadmap_project(project_path, agents_dir, cfg=cfg)
                 case "strategize":
