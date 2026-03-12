@@ -7,16 +7,23 @@ from .agent import run_agent
 from .config import AutopilotConfig, load_config
 from .log import log
 from .manifest import (
+    append_sprint_log,
     get_next_task,
     get_task_summary,
     load_agent_config,
+    load_archetypes_index,
     load_manifest,
+    load_runbook,
+    load_sprint_log,
+    load_sprint_plan,
     update_manifest_frontmatter,
     update_task_status,
 )
+from .models import SprintResult
 from .prompts import (
     build_critic_prompt,
     build_deep_researcher_prompt,
+    build_evaluator_prompt,
     build_judge_prompt,
     build_planner_prompt,
     build_portfolio_prompt,
@@ -25,6 +32,7 @@ from .prompts import (
     build_strategist_prompt,
     build_worker_prompt,
     parse_judge_result,
+    parse_strategy_result,
 )
 
 
@@ -559,3 +567,317 @@ async def process_project(
                 log(project_name, f"Will retry ({new_attempts}/{manifest.max_task_attempts})", "🔄")
 
             manifest = load_manifest(project_path, cfg=cfg) or manifest
+
+
+async def sprint_project(
+    project_path: Path,
+    agents_dir: Path,
+    auto_loop: bool = False,
+    auto_approve: bool = False,
+    cfg: AutopilotConfig | None = None,
+) -> None:
+    """Run one or more sprint cycles against the strategy manifest."""
+    if cfg is None:
+        cfg = load_config(project_path)
+
+    project_name = project_path.name
+
+    # Step 3: Load strategy manifest
+    manifest = load_manifest(project_path, cfg=cfg)
+    if manifest is None or not manifest.goal:
+        log(project_name, "No strategy manifest found or goal is empty — cannot sprint", "❌")
+        return
+
+    # Step 4: Load runbook, sprint log, archetypes index
+    runbook = load_runbook(manifest.archetype, cfg) if manifest.archetype else None
+    sprint_log = load_sprint_log(project_path, cfg)
+    archetypes_index = load_archetypes_index(cfg)
+
+    # Step 5: Determine validation commands
+    if manifest.validate:
+        validation_commands = manifest.validate
+    else:
+        validation_commands = []
+        if archetypes_index and manifest.archetype:
+            for entry in archetypes_index:
+                if entry.get("name") == manifest.archetype:
+                    validation_commands = entry.get("validate", [])
+                    break
+
+    # Step 6: Determine sprint number
+    sprint_number = sprint_log.count("## Sprint") + 1
+
+    # --- Sprint loop ---
+    while True:
+        # Step 7: Check max_sprints
+        if sprint_number > cfg.max_sprints:
+            log(project_name, f"Reached max_sprints ({cfg.max_sprints}) — stopping", "🛑")
+            break
+
+        # Step 8: Run planner in sprint mode
+        try:
+            planner_config = load_agent_config("planner", agents_dir)
+        except FileNotFoundError:
+            log(project_name, "No planner agent config found — stopping", "❌")
+            break
+
+        log(project_name, f"Sprint {sprint_number}: Running planner...", "📝")
+        planner_prompt = build_planner_prompt(
+            project_path,
+            sprint_mode=True,
+            strategy=manifest.strategy,
+            runbook=runbook or "",
+            sprint_log=sprint_log,
+        )
+        planner_result = await run_agent(
+            planner_config,
+            project_path,
+            planner_prompt,
+            project_name=project_name,
+            role_name="planner",
+        )
+        if not planner_result.success:
+            log(project_name, f"Planner failed: {planner_result.error}", "❌")
+            break
+
+        # Step 9: Run critic (sprint_mode=True) — optional, skip if missing
+        try:
+            critic_config = load_agent_config("critic", agents_dir)
+            log(project_name, "Running critic review...", "🔍")
+            critic_prompt = build_critic_prompt(project_path, sprint_mode=True)
+            await run_agent(
+                critic_config,
+                project_path,
+                critic_prompt,
+                project_name=project_name,
+                role_name="critic",
+            )
+        except FileNotFoundError:
+            log(project_name, "No critic agent config found — skipping", "⚠️")
+
+        # Step 10: Load sprint plan
+        sprint_manifest = load_sprint_plan(project_path, cfg)
+        if sprint_manifest is None:
+            log(project_name, "Planner did not write .dev/sprint.md — stopping", "❌")
+            break
+
+        # Step 11: Run judge on sprint plan
+        try:
+            judge_config = load_agent_config("judge", agents_dir)
+        except FileNotFoundError:
+            log(project_name, "No judge agent config found — stopping", "❌")
+            break
+
+        sprint_plan_path = str(cfg.sprint_path(project_path))
+        judge_prompt = build_judge_prompt(sprint_manifest, sprint_plan_path=sprint_plan_path)
+        judge_result = await run_agent(
+            judge_config,
+            project_path,
+            judge_prompt,
+            project_name=project_name,
+            role_name="judge",
+        )
+
+        is_ready, _feedback = parse_judge_result(judge_result.output)
+
+        if not is_ready and not auto_approve:
+            log(
+                project_name,
+                "Sprint plan not approved — set approved: true in .dev/sprint.md to continue",
+                "👉",
+            )
+            return
+        elif not is_ready and auto_approve:
+            log(project_name, "Sprint plan not ready but auto-approve is set — continuing", "⚠️")
+
+        # Step 12: Execute tasks from sprint.md sequentially
+        total_cost = 0.0
+        tasks_completed = 0
+        tasks_failed = 0
+
+        async def _run_sprint_tasks() -> int:
+            """Execute pending tasks from sprint plan. Returns tasks_planned count."""
+            nonlocal total_cost, tasks_completed, tasks_failed
+            while True:
+                current_sprint = load_sprint_plan(project_path, cfg)
+                if current_sprint is None:
+                    break
+                task = get_next_task(current_sprint)
+                if task is None:
+                    return len(current_sprint.tasks)
+                try:
+                    worker_config = load_agent_config("worker", agents_dir)
+                except FileNotFoundError:
+                    log(project_name, "No worker agent config found — stopping", "❌")
+                    return len(current_sprint.tasks)
+
+                task_idx = next(
+                    (i for i, t in enumerate(current_sprint.tasks) if t.id == task.id), 0
+                )
+                total = len(current_sprint.tasks)
+                attempt_str = f" (attempt {task.attempts + 1})" if task.attempts > 0 else ""
+                log(
+                    project_name,
+                    f'Sprint task {task_idx + 1}/{total}: "{task.title}"{attempt_str}',
+                    "🔧",
+                )
+
+                worker_prompt = build_worker_prompt(
+                    current_sprint, task, sprint_plan_path=sprint_plan_path
+                )
+                result = await run_agent(
+                    worker_config,
+                    project_path,
+                    worker_prompt,
+                    project_name=project_name,
+                    role_name="worker",
+                )
+                total_cost += result.cost_usd
+                new_attempts = task.attempts + 1
+
+                if result.success:
+                    reloaded = load_sprint_plan(project_path, cfg)
+                    if reloaded:
+                        updated_task = next(
+                            (t for t in reloaded.tasks if t.id == task.id), None
+                        )
+                        if updated_task and updated_task.status == "done":
+                            tasks_completed += 1
+                            continue
+                        else:
+                            update_task_status(
+                                current_sprint,
+                                task.id,
+                                "pending",
+                                error="Worker completed without marking task done",
+                                attempts=new_attempts,
+                            )
+                else:
+                    if new_attempts >= current_sprint.max_task_attempts:
+                        update_task_status(
+                            current_sprint,
+                            task.id,
+                            "failed",
+                            error=result.error or "Unknown error",
+                            attempts=new_attempts,
+                        )
+                        tasks_failed += 1
+                    else:
+                        update_task_status(
+                            current_sprint,
+                            task.id,
+                            "pending",
+                            error=result.error or "Unknown error",
+                            attempts=new_attempts,
+                        )
+
+            # fallback: reload to get final task count
+            final = load_sprint_plan(project_path, cfg)
+            return len(final.tasks) if final else 0
+
+        tasks_planned = await _run_sprint_tasks()
+
+        # Step 13: Run validation hooks
+        validation_passed, validation_output = await run_validation_hooks(
+            project_path, validation_commands
+        )
+
+        if not validation_passed:
+            log(project_name, "Validation failed — attempting remediation", "⚠️")
+
+        remediation_retries = 0
+        while not validation_passed and remediation_retries < 2:
+            remediation_retries += 1
+            remediation_context = f"Validation failed:\n{validation_output}"
+            combined_sprint_log = (
+                f"{sprint_log}\n\nREMEDIATION CONTEXT:\n{remediation_context}"
+            )
+
+            log(
+                project_name,
+                f"Remediation attempt {remediation_retries}/2 — re-running planner...",
+                "🔄",
+            )
+            try:
+                rem_planner_config = load_agent_config("planner", agents_dir)
+            except FileNotFoundError:
+                log(project_name, "No planner agent config found — stopping remediation", "❌")
+                break
+
+            remediation_prompt = build_planner_prompt(
+                project_path,
+                sprint_mode=True,
+                strategy=manifest.strategy,
+                runbook=runbook or "",
+                sprint_log=combined_sprint_log,
+            )
+            rem_result = await run_agent(
+                rem_planner_config,
+                project_path,
+                remediation_prompt,
+                project_name=project_name,
+                role_name="planner",
+            )
+            if rem_result.success:
+                tasks_planned = await _run_sprint_tasks()
+
+            validation_passed, validation_output = await run_validation_hooks(
+                project_path, validation_commands
+            )
+
+        if not validation_passed:
+            log(project_name, "Validation still failing after remediation attempts", "❌")
+
+        # Step 14: Run evaluator
+        strategy_manifest_text = manifest.strategy
+        sprint_log_current = load_sprint_log(project_path, cfg)
+        eval_prompt = build_evaluator_prompt(
+            project_path, strategy_manifest_text, sprint_log_current
+        )
+
+        strategy_satisfied = False
+        assessment = "Evaluation skipped (no strategist config)"
+
+        try:
+            strategist_config = load_agent_config("strategist", agents_dir)
+            eval_result = await run_agent(
+                strategist_config,
+                project_path,
+                eval_prompt,
+                project_name=project_name,
+                role_name="strategist",
+            )
+            total_cost += eval_result.cost_usd
+            strategy_satisfied, assessment = parse_strategy_result(eval_result.output)
+        except FileNotFoundError:
+            log(project_name, "No strategist agent config found — skipping evaluation", "❌")
+
+        # Step 15: Build and append SprintResult
+        sr = SprintResult(
+            sprint_number=sprint_number,
+            tasks_planned=tasks_planned,
+            tasks_completed=tasks_completed,
+            tasks_failed=tasks_failed,
+            validation_passed=validation_passed,
+            evaluation=assessment,
+            strategy_satisfied=strategy_satisfied,
+            cost_usd=total_cost,
+        )
+        append_sprint_log(project_path, sr, cfg)
+        sprint_log = load_sprint_log(project_path, cfg)
+
+        if total_cost > 0:
+            log(project_name, f"Sprint {sprint_number} cost: ${total_cost:.4f}", "💰")
+
+        # Step 16: Log outcome
+        if strategy_satisfied:
+            log(project_name, f"Sprint {sprint_number}: Strategy satisfied ✓", "🎉")
+        else:
+            log(project_name, f"Sprint {sprint_number}: Strategy not yet satisfied", "🔄")
+
+        # Step 17: Break if satisfied or not looping
+        if strategy_satisfied or not auto_loop:
+            break
+
+        # Step 18: Continue to next sprint
+        sprint_number += 1
