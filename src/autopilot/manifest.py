@@ -1,5 +1,6 @@
 """Manifest parsing, loading, and writing."""
 
+import datetime
 import importlib.resources
 import os
 import re
@@ -9,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from .models import AgentConfig, Manifest, Task
+from .models import AgentConfig, Manifest, SprintResult, Task
 
 if TYPE_CHECKING:
     from .config import AutopilotConfig
@@ -445,6 +446,63 @@ def detect_git_user() -> str | None:
         return user
 
     return None
+
+
+def load_sprint_log(project_path: Path, cfg: "AutopilotConfig") -> str:
+    """Read the sprint log file, returning its text content or '' if it doesn't exist."""
+    path = cfg.sprint_log_path(project_path)
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def append_sprint_log(
+    project_path: Path, sprint_result: SprintResult, cfg: "AutopilotConfig"
+) -> None:
+    """Append one sprint entry to the sprint log file, creating it if needed."""
+    path = cfg.sprint_log_path(project_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    date = datetime.date.today()
+    entry = (
+        f"## Sprint {sprint_result.sprint_number} — {date}\n\n"
+        f"**Tasks planned**: {sprint_result.tasks_planned}\n"
+        f"**Completed**: {sprint_result.tasks_completed} / {sprint_result.tasks_planned}\n"
+        f"**Failed**: {sprint_result.tasks_failed}\n"
+        f"**Validation**: {'passed' if sprint_result.validation_passed else 'failed'}\n"
+        f"**Cost**: ${sprint_result.cost_usd:.2f}\n\n"
+        f"### Assessment\n"
+        f"{sprint_result.evaluation}\n\n"
+        f"**Strategy satisfied**: {'yes' if sprint_result.strategy_satisfied else 'no'}\n\n"
+        f"---\n"
+    )
+    with path.open("a", encoding="utf-8") as f:
+        f.write(entry)
+
+
+def load_sprint_plan(project_path: Path, cfg: "AutopilotConfig") -> Manifest | None:
+    """Read the sprint plan file and return a Manifest, or None if it doesn't exist."""
+    sprint_path = cfg.sprint_path(project_path)
+    if not sprint_path.exists():
+        return None
+    content = sprint_path.read_text(encoding="utf-8")
+    fm, body = parse_frontmatter(content)
+    tasks = parse_tasks(content)
+    return Manifest(
+        path=sprint_path,
+        name=fm.get("name", project_path.name),
+        approved=fm.get("approved", False),
+        status=fm.get("status", "pending"),
+        tasks=tasks,
+        body=body,
+        raw=content,
+    )
+
+
+def save_sprint_plan(project_path: Path, content: str, cfg: "AutopilotConfig") -> None:
+    """Write content to the sprint plan file, creating .dev/ if needed."""
+    path = cfg.sprint_path(project_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
 def get_repo_owner(project_path: Path) -> str | None:
