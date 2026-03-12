@@ -27,10 +27,11 @@ from .orchestrator import (
     process_project,
     research_project,
     roadmap_project,
+    sprint_project,
     strategize_project,
 )
 
-SUBCOMMANDS = {"run", "plan", "research", "roadmap", "portfolio", "strategize"}
+SUBCOMMANDS = {"run", "plan", "research", "roadmap", "portfolio", "strategize", "sprint"}
 _VALUE_FLAGS = {"--scan", "--agents-dir", "--context", "--topic", "--topic-file"}
 _TERMINAL_FLAGS = {"--version", "--help", "-h"}  # let top-level parser handle these
 
@@ -180,6 +181,21 @@ def parse_args() -> argparse.Namespace:
         help="Run deep research before strategizing",
     )
 
+    sprint_p = subparsers.add_parser(
+        "sprint", help="Run a sprint cycle against the strategy manifest"
+    )
+    _add_common(sprint_p)
+    sprint_p.add_argument(
+        "--auto",
+        action="store_true",
+        help="Loop sprints until strategy is satisfied (or max_sprints reached)",
+    )
+    sprint_p.add_argument(
+        "--auto-approve",
+        action="store_true",
+        help="Automatically approve sprint plans without human review",
+    )
+
     return parser.parse_args()
 
 
@@ -317,6 +333,14 @@ async def async_main() -> None:
                 case "strategize":
                     await strategize_project(
                         project_path, agents_dir, context_file, deep=args.deep, cfg=cfg
+                    )
+                case "sprint":
+                    await sprint_project(
+                        project_path,
+                        agents_dir,
+                        auto_loop=args.auto,
+                        auto_approve=args.auto_approve,
+                        cfg=cfg,
                     )
                 case "run":
                     if args.resume:
