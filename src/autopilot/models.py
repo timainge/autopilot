@@ -29,6 +29,12 @@ class Manifest:
     tasks: list[Task] = field(default_factory=list)
     body: str = ""
     raw: str = ""
+    # v2 additions:
+    archetype: str | None = None
+    goal: str = "launch"          # "launch" | "publish" | "complete"
+    strategy: str = ""            # prose body of strategy manifest
+    max_sprint_budget_usd: float = 5.0
+    validate: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -48,4 +54,16 @@ class AgentResult:
     success: bool
     output: str = ""
     error: str | None = None
+    cost_usd: float = 0.0
+
+
+@dataclass
+class SprintResult:
+    sprint_number: int
+    tasks_planned: int
+    tasks_completed: int
+    tasks_failed: int
+    validation_passed: bool
+    evaluation: str          # strategist's free-text assessment
+    strategy_satisfied: bool
     cost_usd: float = 0.0
