@@ -1,5 +1,6 @@
 """Core orchestration loop — processes projects through judge/worker pipeline."""
 
+import asyncio
 from pathlib import Path
 
 from .agent import run_agent
@@ -314,6 +315,46 @@ async def deep_research_project(
 
     if result.cost_usd > 0:
         log(project_name, f"Deep research cost: ${result.cost_usd:.4f}", "💰")
+
+
+async def run_validation_hooks(
+    project_path: Path,
+    commands: list[str],
+    timeout: int = 120,
+) -> tuple[bool, str]:
+    """Run validation commands sequentially in the project directory.
+
+    Returns (all_passed, combined_output). Stops on first failure.
+    """
+    if not commands:
+        return (True, "")
+
+    output = ""
+    for cmd in commands:
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            cwd=str(project_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                proc.communicate(), timeout=timeout
+            )
+        except TimeoutError:
+            proc.kill()
+            await proc.wait()
+            output += f"\n[Command timed out after {timeout}s: {cmd}]"
+            return (False, output)
+
+        output += stdout_bytes.decode("utf-8", errors="replace")
+        output += stderr_bytes.decode("utf-8", errors="replace")
+
+        if proc.returncode != 0:
+            output += f"\n[Command failed with exit code {proc.returncode}: {cmd}]"
+            return (False, output)
+
+    return (True, output)
 
 
 async def process_project(
