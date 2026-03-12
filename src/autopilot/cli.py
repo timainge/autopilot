@@ -26,9 +26,10 @@ from .orchestrator import (
     process_project,
     research_project,
     roadmap_project,
+    strategize_project,
 )
 
-SUBCOMMANDS = {"run", "plan", "research", "roadmap", "portfolio"}
+SUBCOMMANDS = {"run", "plan", "research", "roadmap", "portfolio", "strategize"}
 _VALUE_FLAGS = {"--scan", "--agents-dir", "--context"}  # flags that consume next arg
 _TERMINAL_FLAGS = {"--version", "--help", "-h"}  # let top-level parser handle these
 
@@ -156,6 +157,22 @@ def parse_args() -> argparse.Namespace:
         help="Include all projects (don't skip forks/clones)",
     )
 
+    strategize_p = subparsers.add_parser(
+        "strategize", help="Run the strategist agent to create a strategy manifest"
+    )
+    _add_common(strategize_p)
+    strategize_p.add_argument(
+        "--context",
+        type=Path,
+        default=None,
+        help="File to use as the primary goal/context (e.g. a thought bubble)",
+    )
+    strategize_p.add_argument(
+        "--deep",
+        action="store_true",
+        help="Run deep research before strategizing (Sprint 4 — not yet implemented)",
+    )
+
     return parser.parse_args()
 
 
@@ -174,7 +191,7 @@ async def async_main() -> None:
 
     project_paths: list[Path] = []
 
-    broad = args.subcommand in {"plan", "research", "roadmap", "portfolio"}
+    broad = args.subcommand in {"plan", "research", "roadmap", "portfolio", "strategize"}
 
     if args.subcommand == "portfolio" and not args.scan and not args.projects:
         print("  portfolio requires --scan or explicit project paths.")
@@ -196,7 +213,7 @@ async def async_main() -> None:
         project_paths = [Path(p).expanduser().resolve() for p in args.projects]
     else:
         cwd = Path.cwd()
-        if args.subcommand in {"research", "plan", "roadmap"}:
+        if args.subcommand in {"research", "plan", "roadmap", "strategize"}:
             project_paths = [cwd]
         elif global_cfg.manifest_path(cwd).exists():
             project_paths = [cwd]
@@ -274,6 +291,10 @@ async def async_main() -> None:
                     await research_project(project_path, agents_dir, cfg=cfg)
                 case "roadmap":
                     await roadmap_project(project_path, agents_dir, cfg=cfg)
+                case "strategize":
+                    await strategize_project(
+                        project_path, agents_dir, context_file, deep=args.deep, cfg=cfg
+                    )
                 case "run":
                     if args.resume:
                         if reset_stuck_project(project_path):
