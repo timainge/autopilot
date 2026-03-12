@@ -8,10 +8,11 @@ from .manifest import MANIFEST_PATH
 from .models import Manifest, Task
 
 
-def build_judge_prompt(manifest: Manifest) -> str:
+def build_judge_prompt(manifest: Manifest, sprint_plan_path: str | None = None) -> str:
     """Build the prompt for the judge agent."""
+    plan_path = sprint_plan_path if sprint_plan_path is not None else MANIFEST_PATH
     return textwrap.dedent(f"""\
-        Evaluate the project manifest at `{MANIFEST_PATH}` in this directory.
+        Evaluate the project manifest at `{plan_path}` in this directory.
 
         Determine whether this project is ready for autonomous task execution.
 
@@ -38,7 +39,11 @@ def build_judge_prompt(manifest: Manifest) -> str:
     """)
 
 
-def build_worker_prompt(manifest: Manifest, task: Task) -> str:
+def build_worker_prompt(
+    manifest: Manifest,
+    task: Task,
+    sprint_plan_path: str | None = None,
+) -> str:
     """Build the prompt for a worker agent executing a specific task."""
     task_index = next((i for i, t in enumerate(manifest.tasks) if t.id == task.id), 0)
     total = len(manifest.tasks)
@@ -56,11 +61,30 @@ def build_worker_prompt(manifest: Manifest, task: Task) -> str:
 
     task_detail = f"\n\n{task.body.strip()}" if task.body and task.body.strip() else ""
 
+    if sprint_plan_path is not None:
+        manifest_instruction = (
+            f"Read the sprint plan at `{sprint_plan_path}` to understand the current sprint's"
+            f" tasks.\n"
+            f"        Also read `{MANIFEST_PATH}` for overall strategy context."
+        )
+        mark_done_instruction = (
+            f"5. Mark this task as complete in `{sprint_plan_path}` by changing\n"
+            f"           its checkbox from `### [ ]` to `### [x]`"
+        )
+    else:
+        manifest_instruction = (
+            f"Read the project manifest at `{MANIFEST_PATH}` to understand the full\n"
+            f"        project context, plan, and current progress."
+        )
+        mark_done_instruction = (
+            f"5. Mark this task as complete in `{MANIFEST_PATH}` by changing\n"
+            f"           its checkbox from `### [ ]` to `### [x]`"
+        )
+
     return textwrap.dedent(f"""\
         You are working on the project in this directory.
 
-        Read the project manifest at `{MANIFEST_PATH}` to understand the full
-        project context, plan, and current progress.
+        {manifest_instruction}
 
         YOUR CURRENT TASK (task {task_index + 1} of {total}):
         "{task.title}"{task_detail}
@@ -70,8 +94,7 @@ def build_worker_prompt(manifest: Manifest, task: Task) -> str:
         2. Implement the changes needed for this specific task
         3. Run any appropriate tests or checks to verify your work
         4. Commit your changes with a clear, descriptive commit message
-        5. Mark this task as complete in `{MANIFEST_PATH}` by changing
-           its checkbox from `### [ ]` to `### [x]`
+        {mark_done_instruction}
         6. Provide a brief summary of what you accomplished
 
         RULES:
@@ -131,8 +154,53 @@ def build_portfolio_prompt(scan_dir: Path, project_paths: list[Path]) -> str:
     return "\n".join(lines)
 
 
-def build_planner_prompt(project_path: Path, context_file: Path | None = None) -> str:
+def build_planner_prompt(
+    project_path: Path,
+    context_file: Path | None = None,
+    strategy: str = "",
+    runbook: str = "",
+    sprint_log: str = "",
+    sprint_mode: bool = False,
+) -> str:
     """Build the prompt for the planner agent."""
+    if sprint_mode:
+        lines = [
+            f"Analyze the project at `{project_path}` and write the next sprint's task plan",
+            "to `.dev/sprint.md`.",
+            "",
+            "The sprint plan format is identical to the standard task format: use the same",
+            "YAML frontmatter (approved, status, etc.) and markdown checkbox task list.",
+            "",
+            "CONSTRAINT: Each sprint must leave the project in a working state",
+            "(tests pass, no broken imports).",
+        ]
+
+        if strategy:
+            lines += [
+                "",
+                "--- STRATEGY START ---",
+                strategy,
+                "--- STRATEGY END ---",
+            ]
+
+        if runbook:
+            lines += [
+                "",
+                "--- RUNBOOK START ---",
+                runbook,
+                "--- RUNBOOK END ---",
+            ]
+
+        if sprint_log:
+            lines += [
+                "",
+                "--- SPRINT LOG START ---",
+                sprint_log,
+                "--- SPRINT LOG END ---",
+            ]
+
+        return "\n".join(lines)
+
     lines = [
         f"Analyze the project at `{project_path}` and create or improve the",
         f"task plan in `{MANIFEST_PATH}`.",
@@ -169,8 +237,24 @@ def build_planner_prompt(project_path: Path, context_file: Path | None = None) -
     return "\n".join(lines)
 
 
-def build_critic_prompt(project_path: Path, context_file: Path | None = None) -> str:
+def build_critic_prompt(
+    project_path: Path,
+    context_file: Path | None = None,
+    sprint_mode: bool = False,
+) -> str:
     """Build the prompt for the critic agent."""
+    if sprint_mode:
+        lines = [
+            f"Review the sprint task plan at `.dev/sprint.md` for the project at `{project_path}`.",
+            "",
+            "The plan was written by a planner agent. Your job is to find what it missed",
+            "and fix it directly in the sprint manifest. Follow the process in your system prompt.",
+            "",
+            "Note: the overall strategy context lives in `.dev/autopilot.md` — read it to",
+            "understand the goals this sprint should be advancing.",
+        ]
+        return "\n".join(lines)
+
     lines = [
         f"Review the task plan at `.dev/autopilot.md` for the project at `{project_path}`.",
         "",
@@ -348,6 +432,35 @@ def build_deep_researcher_prompt(
         (run the linter if present). Do web searches for comparable tools, recent
         activity in the space, and known issues with dependencies. Synthesize all
         findings into the structured report.
+    """)
+
+
+def build_evaluator_prompt(
+    project_path: Path,
+    strategy_manifest: str,
+    sprint_log: str,
+) -> str:
+    """Build the prompt for the strategist agent in evaluate mode."""
+    return textwrap.dedent(f"""\
+        Evaluate whether the strategy goals have been satisfied for the project at `{project_path}`.
+
+        Strategy manifest:
+        --- STRATEGY START ---
+        {strategy_manifest}
+        --- STRATEGY END ---
+
+        Sprint log:
+        --- SPRINT LOG START ---
+        {sprint_log}
+        --- SPRINT LOG END ---
+
+        Inspect the current project state as needed. Output EXACTLY:
+
+        STRATEGY_SATISFIED: YES
+        (or)
+        STRATEGY_SATISFIED: NO
+
+        Followed by a brief assessment (2-5 sentences).
     """)
 
 
