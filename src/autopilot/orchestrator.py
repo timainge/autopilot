@@ -15,6 +15,7 @@ from .manifest import (
 )
 from .prompts import (
     build_critic_prompt,
+    build_deep_researcher_prompt,
     build_judge_prompt,
     build_planner_prompt,
     build_portfolio_prompt,
@@ -268,6 +269,50 @@ async def strategize_project(
 
     if result.cost_usd > 0:
         log(project_name, f"Strategist cost: ${result.cost_usd:.4f}", "💰")
+
+
+async def deep_research_project(
+    project_path: Path,
+    agents_dir: Path,
+    topic: str | None = None,
+    topic_file: Path | None = None,
+    cfg: AutopilotConfig | None = None,
+) -> None:
+    """Run the deep-researcher agent for thorough project or topic research."""
+    if cfg is None:
+        cfg = load_config(project_path)
+
+    project_name = project_path.name
+
+    try:
+        researcher_config = load_agent_config("deep-researcher", agents_dir)
+    except FileNotFoundError:
+        log(project_name, "No deep-researcher agent config found — skipping", "❌")
+        return
+
+    topic_hint = ""
+    if topic:
+        topic_hint = f" (topic: {topic[:50]}...)"
+    elif topic_file:
+        topic_hint = f" (topic: {topic_file.name})"
+    log(project_name, f"Running deep research...{topic_hint}", "🔬")
+
+    prompt = build_deep_researcher_prompt(project_path, topic, topic_file)
+    result = await run_agent(
+        researcher_config,
+        project_path,
+        prompt,
+        project_name=project_name,
+        role_name="deep-researcher",
+    )
+
+    if result.success:
+        log(project_name, "Deep research complete — see .dev/research/*/report.md", "✅")
+    else:
+        log(project_name, f"Deep research failed: {result.error}", "❌")
+
+    if result.cost_usd > 0:
+        log(project_name, f"Deep research cost: ${result.cost_usd:.4f}", "💰")
 
 
 async def process_project(
