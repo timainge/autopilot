@@ -20,6 +20,7 @@ from .prompts import (
     build_portfolio_prompt,
     build_researcher_prompt,
     build_roadmap_prompt,
+    build_strategist_prompt,
     build_worker_prompt,
     parse_judge_result,
 )
@@ -218,6 +219,55 @@ async def roadmap_project(
 
     if result.cost_usd > 0:
         log(project_name, f"Roadmap cost: ${result.cost_usd:.4f}", "💰")
+
+
+async def strategize_project(
+    project_path: Path,
+    agents_dir: Path,
+    context_file: Path | None = None,
+    deep: bool = False,
+    cfg: AutopilotConfig | None = None,
+) -> None:
+    """Run the strategist agent to create a strategy manifest."""
+    if cfg is None:
+        cfg = load_config(project_path)
+
+    project_name = project_path.name
+
+    if deep:
+        log(project_name, "Deep research not yet implemented — running standard research", "⚠️")
+
+    if not context_file and not cfg.summary_path(project_path).exists():
+        log(project_name, "No context provided — running research first", "🔬")
+        await research_project(project_path, agents_dir, cfg=cfg)
+
+    try:
+        strategist_config = load_agent_config("strategist", agents_dir)
+    except FileNotFoundError:
+        log(project_name, "No strategist agent config found — skipping", "❌")
+        return
+
+    archetypes_index_path = cfg.archetypes_index_path()
+
+    ctx = f" (with context from {context_file.name})" if context_file else ""
+    log(project_name, f"Running strategist...{ctx}", "🧠")
+
+    prompt = build_strategist_prompt(project_path, "create", context_file, archetypes_index_path)
+    result = await run_agent(
+        strategist_config,
+        project_path,
+        prompt,
+        project_name=project_name,
+        role_name="strategist",
+    )
+
+    if result.success:
+        log(project_name, "Strategy manifest complete — see .dev/autopilot.md", "✅")
+    else:
+        log(project_name, f"Strategist failed: {result.error}", "❌")
+
+    if result.cost_usd > 0:
+        log(project_name, f"Strategist cost: ${result.cost_usd:.4f}", "💰")
 
 
 async def process_project(
