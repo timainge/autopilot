@@ -216,6 +216,96 @@ def build_roadmap_prompt(project_path: Path) -> str:
     """)
 
 
+def build_strategist_prompt(
+    project_path: Path,
+    mode: str,  # "create" | "evaluate"
+    context_file: Path | None = None,
+    archetypes_index_path: Path | None = None,
+    sprint_log: str = "",
+) -> str:
+    """Build the prompt for the strategist agent (create or evaluate mode)."""
+    if mode == "create":
+        archetype_hint = (
+            f"Load the archetypes index at `{archetypes_index_path}` to identify the archetype."
+            if archetypes_index_path
+            else "No archetypes index is available — infer the archetype from codebase markers."
+        )
+        prompt = textwrap.dedent(f"""\
+            Analyze the project at `{project_path}` and create a strategy manifest
+            at `.dev/autopilot.md`.
+
+            Explore the codebase: read CLAUDE.md, README, pyproject.toml/package.json,
+            and `.dev/project-summary.md` / `.dev/roadmap.md` if present.
+
+            {archetype_hint}
+
+            Write `.dev/autopilot.md` in the strategy manifest format described in your
+            system prompt. Create the `.dev/` directory if it doesn't exist.
+        """)
+
+        if context_file:
+            try:
+                content = context_file.read_text(encoding="utf-8")
+            except OSError:
+                content = f"(could not read {context_file})"
+
+            prompt += "\n".join([
+                "",
+                "Use the following file as the primary goal/context for the strategy.",
+                f"Source: `{context_file}`",
+                "",
+                "--- CONTEXT START ---",
+                content,
+                "--- CONTEXT END ---",
+                "",
+                "After reading the above, complete your codebase exploration"
+                " before writing the strategy.",
+            ])
+        else:
+            prompt += "\n".join([
+                "",
+                "No context file was provided. Infer the goal from the codebase state and any",
+                "existing roadmap or research summary.",
+            ])
+
+        return prompt
+
+    # evaluate mode
+    return textwrap.dedent(f"""\
+        Read the strategy manifest at `.dev/autopilot.md` for the project at `{project_path}`.
+
+        Below is the sprint log summarising work completed so far:
+
+        --- SPRINT LOG START ---
+        {sprint_log}
+        --- SPRINT LOG END ---
+
+        Assess whether the strategy goals and quality bar defined in the manifest are satisfied
+        based on the sprint log and current project state.
+
+        Output EXACTLY one of:
+
+        STRATEGY_SATISFIED: YES
+        (or)
+        STRATEGY_SATISFIED: NO
+
+        Followed by a concise assessment. If not satisfied, describe what remains.
+    """)
+
+
+def parse_strategy_result(output: str) -> tuple[bool, str]:
+    """Parse the strategist agent's evaluation verdict and assessment."""
+    if "STRATEGY_SATISFIED: YES" in output:
+        satisfied = True
+    elif "STRATEGY_SATISFIED: NO" in output:
+        satisfied = False
+    else:
+        return False, output
+
+    assessment = re.sub(r"STRATEGY_SATISFIED:\s*(YES|NO)\s*", "", output, count=1).strip()
+    return satisfied, assessment
+
+
 def parse_judge_result(output: str) -> tuple[bool, str]:
     """Parse the judge agent's verdict and feedback."""
     is_ready = "VERDICT: READY" in output and "VERDICT: NOT_READY" not in output
