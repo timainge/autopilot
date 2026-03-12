@@ -293,6 +293,64 @@ def build_strategist_prompt(
     """)
 
 
+def build_deep_researcher_prompt(
+    project_path: Path,
+    topic: str | None = None,
+    topic_file: Path | None = None,
+) -> str:
+    """Build the prompt for the deep researcher agent."""
+    if topic_file is not None:
+        slug = re.sub(r"[^a-z0-9]+", "-", topic_file.stem[:40].lower()).strip("-")
+        try:
+            content = topic_file.read_text(encoding="utf-8")
+        except OSError:
+            content = f"(could not read {topic_file})"
+
+        lines = [
+            f"Research the following topic for the project at `{project_path}`.",
+            "",
+            f"Write your report to `.dev/research/{slug}/report.md`.",
+            "",
+            "The research brief is provided below.",
+            f"Source: `{topic_file}`",
+            "",
+            "--- CONTEXT START ---",
+            content,
+            "--- CONTEXT END ---",
+            "",
+            "Parse the brief into 3-6 distinct lines of enquiry, research each thoroughly,"
+            " then synthesize your findings into the report.",
+        ]
+        return "\n".join(lines)
+
+    if topic is not None:
+        slug = re.sub(r"[^a-z0-9]+", "-", topic[:40].lower()).strip("-")
+        return textwrap.dedent(f"""\
+            Research the following topic for the project at `{project_path}`.
+
+            Topic: {topic}
+
+            Write your report to `.dev/research/{slug}/report.md`.
+
+            Parse the topic into 3-6 distinct lines of enquiry, research each thoroughly,
+            then synthesize your findings into the report.
+        """)
+
+    # Project-analysis mode
+    output_path = f".dev/research/{project_path.name}-project-analysis/report.md"
+    return textwrap.dedent(f"""\
+        Perform a comprehensive project analysis of `{project_path}`.
+
+        Write your report to `{output_path}`.
+
+        Explore the codebase thoroughly: architecture, key modules, test coverage
+        (run the test suite if one exists), dependency health, and code quality
+        (run the linter if present). Do web searches for comparable tools, recent
+        activity in the space, and known issues with dependencies. Synthesize all
+        findings into the structured report.
+    """)
+
+
 def parse_strategy_result(output: str) -> tuple[bool, str]:
     """Parse the strategist agent's evaluation verdict and assessment."""
     if "STRATEGY_SATISFIED: YES" in output:
