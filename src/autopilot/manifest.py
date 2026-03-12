@@ -1,5 +1,6 @@
 """Manifest parsing, loading, and writing."""
 
+import importlib.resources
 import os
 import re
 import subprocess
@@ -346,6 +347,65 @@ def discover_all_projects(scan_dir: Path) -> list[Path]:
         if any((child / marker).exists() for marker in _PROJECT_MARKERS):
             projects.append(child)
     return projects
+
+
+def load_runbook(archetype: str, cfg: "AutopilotConfig") -> str | None:
+    """Load a runbook for the given archetype.
+
+    Search order:
+    1. {cfg.resolve_runbooks_path()}/archetypes/{archetype}/SKILL.md (external plugin)
+    2. importlib.resources bundled fallback in autopilot/runbooks/{archetype}.md
+
+    Returns the file content as a string, or None if neither path exists.
+    """
+    # 1. External plugin path
+    runbooks_path = cfg.resolve_runbooks_path()
+    if runbooks_path is not None:
+        external = runbooks_path / "archetypes" / archetype / "SKILL.md"
+        if external.exists():
+            return external.read_text(encoding="utf-8")
+
+    # 2. Bundled fallback
+    bundled = importlib.resources.files("autopilot") / "runbooks" / f"{archetype}.md"
+    try:
+        return bundled.read_text(encoding="utf-8")
+    except (FileNotFoundError, TypeError):
+        return None
+
+
+def load_runbook_references(archetype: str, cfg: "AutopilotConfig") -> dict[str, str]:
+    """Load all reference markdown files for the given archetype.
+
+    Looks in {cfg.resolve_runbooks_path()}/archetypes/{archetype}/references/.
+    Returns a dict mapping filename -> content for every *.md file found.
+    Returns {} if the runbooks path is not configured or the references dir doesn't exist.
+    """
+    runbooks_path = cfg.resolve_runbooks_path()
+    if runbooks_path is None:
+        return {}
+
+    refs_dir = runbooks_path / "archetypes" / archetype / "references"
+    if not refs_dir.exists():
+        return {}
+
+    result: dict[str, str] = {}
+    for md_file in sorted(refs_dir.glob("*.md")):
+        result[md_file.name] = md_file.read_text(encoding="utf-8")
+    return result
+
+
+def load_archetypes_index(cfg: "AutopilotConfig") -> list[dict] | None:
+    """Load the archetypes index from the configured runbooks path.
+
+    Reads cfg.archetypes_index_path(), parses YAML, and returns data["archetypes"].
+    Returns None if archetypes_index_path() returns None.
+    """
+    index_path = cfg.archetypes_index_path()
+    if index_path is None:
+        return None
+
+    data = yaml.safe_load(index_path.read_text(encoding="utf-8")) or {}
+    return data.get("archetypes")
 
 
 def _run_cmd(args: list[str], timeout: int = 5) -> str | None:
