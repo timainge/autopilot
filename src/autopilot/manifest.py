@@ -142,6 +142,11 @@ def load_manifest(path: Path, cfg: "AutopilotConfig | None" = None) -> Manifest 
         tasks=tasks,
         body=body,
         raw=content,
+        archetype=fm.get("archetype"),
+        goal=fm.get("goal", "launch"),
+        validate=fm.get("validate") or [],
+        max_sprint_budget_usd=fm.get("max_sprint_budget_usd", 5.0),
+        strategy=body,
     )
 
 
