@@ -177,7 +177,7 @@ def parse_args() -> argparse.Namespace:
     strategize_p.add_argument(
         "--deep",
         action="store_true",
-        help="Run deep research before strategizing (Sprint 4 — not yet implemented)",
+        help="Run deep research before strategizing",
     )
 
     return parser.parse_args()

@@ -236,7 +236,8 @@ async def strategize_project(
     project_name = project_path.name
 
     if deep:
-        log(project_name, "Deep research not yet implemented — running standard research", "⚠️")
+        log(project_name, "Running deep research before strategizing...", "🔬")
+        await deep_research_project(project_path, agents_dir, cfg=cfg)
 
     if not context_file and not cfg.summary_path(project_path).exists():
         log(project_name, "No context provided — running research first", "🔬")
