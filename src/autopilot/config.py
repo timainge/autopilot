@@ -19,6 +19,10 @@ _DEFAULTS: dict = {
     "portfolio_filename": "portfolio.md",
     "max_budget_usd": 5.0,
     "max_task_attempts": 3,
+    "runbooks_path": None,
+    "sprint_filename": "sprint.md",
+    "sprint_log_filename": "sprint-log.md",
+    "max_sprints": 10,
 }
 
 
@@ -33,6 +37,10 @@ class AutopilotConfig:
     portfolio_filename: str = "portfolio.md"
     max_budget_usd: float = 5.0
     max_task_attempts: int = 3
+    runbooks_path: str | None = None
+    sprint_filename: str = "sprint.md"
+    sprint_log_filename: str = "sprint-log.md"
+    max_sprints: int = 10
 
     def manifest_path(self, project: Path) -> Path:
         return project / self.dev_dir / self.manifest_filename
@@ -45,6 +53,28 @@ class AutopilotConfig:
 
     def portfolio_path(self, scan_dir: Path) -> Path:
         return scan_dir / self.dev_dir / self.portfolio_filename
+
+    def sprint_path(self, project: Path) -> Path:
+        return project / self.dev_dir / self.sprint_filename
+
+    def sprint_log_path(self, project: Path) -> Path:
+        return project / self.dev_dir / self.sprint_log_filename
+
+    def resolve_runbooks_path(self) -> Path | None:
+        """Return the configured runbooks dir if it exists, else None."""
+        if self.runbooks_path:
+            p = Path(self.runbooks_path).expanduser()
+            if p.exists():
+                return p
+        return None
+
+    def archetypes_index_path(self) -> Path | None:
+        p = self.resolve_runbooks_path()
+        if p:
+            idx = p / "archetypes.yaml"
+            if idx.exists():
+                return idx
+        return None
 
 
 def _load_toml(path: Path, warn_on_error: bool = False) -> dict:
