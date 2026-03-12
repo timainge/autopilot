@@ -79,7 +79,11 @@ def parse_tasks(content: str) -> list[Task]:
         title = header_clean.strip()
 
         depends_str = meta.get("depends", "")
-        depends = [d.strip() for d in depends_str.split(",") if d.strip()] if depends_str else []
+        raw_deps = [d.strip() for d in depends_str.split(",") if d.strip()] if depends_str else []
+        depends = [
+            d if re.match(r"^[a-z0-9][a-z0-9-]*$", d) else slugify(d)
+            for d in raw_deps
+        ]
         attempts = int(meta.get("attempts", "0"))
 
         status = "done" if checkbox == "x" else "pending"

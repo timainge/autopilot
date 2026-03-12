@@ -32,9 +32,8 @@ async def run_agent(
         cwd=str(cwd),
     )
 
-    # Session naming: makes sessions appear as "autopilot/{project}/{role}" in /resume history
-    if role_name:
-        options.extra_args = {"session-name": f"autopilot/{project_name or cwd.name}/{role_name}"}
+    # Session naming: ClaudeAgentOptions does not support extra_args / --session-name yet.
+    # TODO: wire this up once the SDK exposes a session_name field.
 
     if agent_config.permission_mode and agent_config.permission_mode != "default":
         options.permission_mode = agent_config.permission_mode

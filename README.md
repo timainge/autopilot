@@ -17,8 +17,8 @@ Autonomous project session orchestrator for Claude Code. You write a plan; autop
 │                                                                  │
 │  optional prep       planning          execution                 │
 │                                                                  │
-│  --research .   ──▶  --plan .    ──▶  Judge phase               │
-│  --roadmap .          (lazy:            │                        │
+│  research .     ──▶  plan .      ──▶  Judge phase               │
+│  roadmap .            (lazy:            │                        │
 │                       runs research     │ READY / NOT_READY      │
 │                       + roadmap if      ▼                        │
 │                       missing)        Approve gate               │
@@ -34,11 +34,11 @@ Autonomous project session orchestrator for Claude Code. You write a plan; autop
 
 **Phase overview:**
 
-1. **Research** (`--research`) — Researcher agent analyzes the codebase and writes `.dev/project-summary.md`: tech stack, current state, what's done, what's missing.
-2. **Roadmap** (`--roadmap`) — Roadmap agent reads the research summary and writes `.dev/roadmap.md` with a concrete shipping target and next steps.
-3. **Plan** (`--plan`) — Planner agent creates `.dev/autopilot.md` with structured tasks. Without `--context`, it lazily runs research + roadmap first if those artifacts don't exist yet.
-4. **Judge** — On each run with `approved: false`, the judge agent evaluates whether the manifest is ready for autonomous execution and prints a READY / NOT_READY verdict with feedback.
-5. **Approve** — A human sets `approved: true` in the manifest, or pass `--auto-approve` and autopilot sets it automatically when the judge returns READY.
+1. **Research** (`research`) — Researcher agent analyzes the codebase and writes `.dev/project-summary.md`: tech stack, current state, what's done, what's missing.
+2. **Roadmap** (`roadmap`) — Roadmap agent reads the research summary and writes `.dev/roadmap.md` with a concrete shipping target and next steps.
+3. **Plan** (`plan`) — Planner agent creates `.dev/autopilot.md` with structured tasks. Without `--context`, it lazily runs research + roadmap first if those artifacts don't exist yet.
+4. **Judge** — On each `run` with `approved: false`, the judge agent evaluates whether the manifest is ready for autonomous execution and prints a READY / NOT_READY verdict with feedback.
+5. **Approve** — A human sets `approved: true` in the manifest, or pass `--auto-approve` to `run` and autopilot sets it automatically when the judge returns READY.
 6. **Worker loop** — With `approved: true`, autopilot runs tasks one by one: each task spawns a fresh Claude Code session, the session implements the task, commits, and marks the checkbox done. Failures are retried up to `max_task_attempts` times.
 
 ---
@@ -69,7 +69,7 @@ export CLAUDE_CODE_OAUTH_TOKEN=<token from above>
 ### 1. Research the project (recommended)
 
 ```bash
-autopilot --research .
+autopilot research .
 ```
 
 Runs the researcher agent, writes `.dev/project-summary.md`. Captures tech stack, current state, what's done, and what's missing. Re-running is safe and cheap — the agent checks the stored commit hash against the current state and does a partial update if little has changed, or a full re-analysis if the project has moved significantly.
@@ -77,7 +77,7 @@ Runs the researcher agent, writes `.dev/project-summary.md`. Captures tech stack
 ### 2. Build a shipping roadmap (recommended)
 
 ```bash
-autopilot --roadmap .
+autopilot roadmap .
 ```
 
 Reads the research summary (or does a quick assessment if it doesn't exist yet), then writes `.dev/roadmap.md` identifying the right shipping target (production launch, library publish, blog post, etc.) and the concrete steps to get there. The planner uses this as context to produce higher-quality tasks.
@@ -86,14 +86,14 @@ Reads the research summary (or does a quick assessment if it doesn't exist yet),
 
 ```bash
 # Recommended: auto-runs research + roadmap if artifacts don't exist
-autopilot --plan .
+autopilot plan .
 
 # Seed with an existing TODO list, spec, or design doc
-autopilot --plan --context TODO.md .
+autopilot plan --context TODO.md .
 
 # Run a critic pass after planning
-autopilot --plan --review .
-autopilot --plan --review --context TODO.md .
+autopilot plan --review .
+autopilot plan --review --context TODO.md .
 ```
 
 The planner agent explores the codebase and writes `.dev/autopilot.md` with structured, dependency-linked tasks.
@@ -109,7 +109,7 @@ See [Manifest Format](#manifest-format) for the full syntax reference.
 ### 4. Evaluate and approve
 
 ```bash
-autopilot .
+autopilot run .
 ```
 
 The judge evaluates the manifest and prints a READY / NOT_READY verdict with specific feedback. If NOT_READY, revise the manifest based on the feedback and run again.
@@ -121,7 +121,7 @@ Once the plan is ready:
 # Open .dev/autopilot.md and set approved: true
 
 # Option B: auto-approve when judge says READY
-autopilot --auto-approve .
+autopilot run --auto-approve .
 ```
 
 The approval gate exists by design — the judge evaluates readiness, but a human (or explicit `--auto-approve`) must unlock execution. This prevents runaway execution on half-baked plans.
@@ -129,7 +129,7 @@ The approval gate exists by design — the judge evaluates readiness, but a huma
 ### 5. Execute
 
 ```bash
-autopilot .
+autopilot run .
 ```
 
 With `approved: true`, autopilot enters worker mode and runs tasks sequentially. Each task:
@@ -142,27 +142,27 @@ With `approved: true`, autopilot enters worker mode and runs tasks sequentially.
 
 ## Multi-Repo Workflow
 
-`--scan` maps every single-project action across an entire directory. All flags that work on a single project work with `--scan`. Autopilot discovers projects by finding directories that look like active repos (git-initialized, with a `package.json`, `pyproject.toml`, etc.).
+`--scan` maps every single-project command across an entire directory. All flags that work on a single project work with `--scan`. Autopilot discovers projects by finding directories that look like active repos (git-initialized, with a `package.json`, `pyproject.toml`, etc.).
 
 ### Research all projects
 
 ```bash
-autopilot --research --scan ~/Projects
-autopilot --research --all --scan ~/Projects   # include forks/clones
-autopilot --research --scan ~/Projects --dry-run
+autopilot research --scan ~/Projects
+autopilot research --all --scan ~/Projects   # include forks/clones
+autopilot research --scan ~/Projects --dry-run
 ```
 
 ### Build roadmaps
 
 ```bash
-autopilot --roadmap --scan ~/Projects
-autopilot --roadmap --all --scan ~/Projects
+autopilot roadmap --scan ~/Projects
+autopilot roadmap --all --scan ~/Projects
 ```
 
 ### Portfolio overview
 
 ```bash
-autopilot --portfolio --scan ~/Projects
+autopilot portfolio --scan ~/Projects
 ```
 
 Portfolio is multi-project only — there's no single-project equivalent. It builds a cross-project index with analysis by tech stack, current state, and prioritized quick wins. Projects with existing research summaries are indexed from those; the rest get a quick in-place assessment. Output is written to `<scan_dir>/.dev/portfolio.md`.
@@ -170,10 +170,10 @@ Portfolio is multi-project only — there's no single-project equivalent. It bui
 ### Plan and execute at scale
 
 ```bash
-autopilot --plan --scan ~/Projects
-autopilot --scan ~/Projects              # judge + worker loop on all projects
-autopilot --auto-approve --scan ~/Projects
-autopilot --scan ~/Projects --dry-run
+autopilot plan --scan ~/Projects
+autopilot run --scan ~/Projects              # judge + worker loop on all projects
+autopilot run --auto-approve --scan ~/Projects
+autopilot run --scan ~/Projects --dry-run
 ```
 
 ### Fork filtering
@@ -200,28 +200,39 @@ The manifest is a markdown file with YAML frontmatter at `.dev/autopilot.md`. Ad
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | dir name | Project display name |
-| `approved` | bool | false | Human approval gate — set manually or via `--auto-approve` |
-| `status` | string | pending | pending / active / paused / completed / failed |
+| `approved` | bool | false | Human approval gate — set manually or via `run --auto-approve` |
+| `status` | string | pending | pending / active / stuck / completed |
+| `worktree` | bool | false | Run each task in an isolated git worktree |
+| `branch_prefix` | string | autopilot | Branch name prefix when `worktree: true` |
 | `max_budget_usd` | float | 5.0 | Budget cap per project run |
 | `max_task_attempts` | int | 3 | Max retries per task before marking failed |
 
 ### Task Format
 
-Tasks are standard markdown checkboxes under a `## Tasks` heading:
+Tasks are level-3 headings with a checkbox, a slug ID, optional inline metadata, and an optional body:
 
 ```markdown
-## Tasks
+### [ ] task-slug-id
 
-- [ ] Implement the thing
-- [ ] Another thing [depends: implement-the-thing]
-- [ ] Custom ID task [id: custom-id, depends: implement-the-thing]
-- [x] Already done task
+Body text describing what the worker agent should do. Can be multiple paragraphs,
+include file paths, acceptance criteria, implementation notes, etc.
+
+---
+
+### [ ] another-task [depends: task-slug-id]
+
+Body text for this task.
+
+---
+
+### [x] completed-task
 ```
 
-- **IDs** are auto-derived by slugifying the title, or set explicitly with `[id: ...]`
-- **Dependencies** use `[depends: task-id-1, task-id-2]`
+- **IDs** are the heading text itself — must be slug format (`lowercase-with-dashes`). The planner generates these; non-slug text is auto-slugified on load.
+- **Dependencies** use `[depends: task-id-1, task-id-2]` inline in the heading
+- **Body** is the text between the heading and the next task (or end of file). The `---` separator is cosmetic — it's stripped on parse.
 - **Status** is tracked by the checkbox: `[ ]` = pending, `[x]` = done
-- **Retry metadata** (`[attempts: N]`, `[status: failed]`, `[error: ...]`) is written by autopilot and persists across reloads — don't edit these manually
+- **Retry metadata** (`[attempts: N]`, `[status: failed]`, `[error: ...]`) is written by autopilot into the heading and persists across reloads — don't edit these manually
 
 ### Full Example
 
@@ -238,12 +249,29 @@ max_task_attempts: 3
 
 Description of what you're building and any relevant context the worker agent needs.
 
-## Tasks
+### [ ] set-up-the-database-schema
 
-- [ ] Set up the database schema [id: db-schema]
-- [ ] Implement the API endpoints [depends: db-schema]
-- [ ] Write tests [depends: db-schema]
-- [ ] Update README [depends: implement-api-endpoints]
+Create the initial schema in `db/schema.sql`. Tables needed: users, sessions, events.
+Run migrations with `npm run migrate`.
+
+---
+
+### [ ] implement-api-endpoints [depends: set-up-the-database-schema]
+
+Implement REST endpoints in `src/api/`. Cover CRUD for users and events.
+Add request validation and error responses. Tests live in `src/api/__tests__/`.
+
+---
+
+### [ ] write-tests [depends: set-up-the-database-schema]
+
+Write integration tests in `tests/`. Use the existing test DB fixture in `tests/conftest.py`.
+
+---
+
+### [ ] update-readme [depends: implement-api-endpoints]
+
+Update README.md with installation steps, env vars, and API reference.
 ```
 
 ---
@@ -270,8 +298,8 @@ Sessions appear in Claude Code's `/resume` history as `autopilot/projectname/rol
 
 - **judge** — evaluates manifest readiness, suggests improvements
 - **worker** — executes tasks: reads context, implements, tests, commits
-- **planner** — creates or improves task plans (`--plan` flag)
-- **critic** — reviews plans adversarially (`--plan --review`)
+- **planner** — creates or improves task plans (`plan` command)
+- **critic** — reviews plans adversarially (`plan --review`)
 - **researcher** — analyzes a project and writes `.dev/project-summary.md`
 - **portfolio** — builds a cross-project overview at `<scan_dir>/.dev/portfolio.md`
 - **roadmap** — builds a shipping roadmap per project at `.dev/roadmap.md`
