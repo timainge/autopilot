@@ -37,21 +37,23 @@ export CLAUDE_CODE_OAUTH_TOKEN=<token from above>
 
 ## Task Execution
 
-The basic flow: research → roadmap → plan → run.
+The basic flow: roadmap → plan → run.
 
-### Research and roadmap (optional but recommended)
+### Roadmap (optional but recommended)
 
 ```bash
-autopilot research .    # analyzes codebase → .dev/project-summary.md
-autopilot roadmap .     # identifies shipping target → .dev/roadmap.md
+autopilot roadmap .              # quick assessment → .dev/roadmap.md
+autopilot roadmap --deep .       # deep research first, then roadmap
+autopilot roadmap --topic "How should I structure the auth layer?" .
+autopilot roadmap --topic-file research-brief.md .
 ```
 
-The researcher captures the tech stack, current state, and what's missing. The roadmap agent reads that and determines the right goal (production launch, library publish, blog post, etc.) with concrete phases and effort estimates. Neither step is required, but the planner produces much better tasks with this context.
+The roadmap agent determines the right goal (production launch, library publish, blog post, etc.) with concrete phases and effort estimates. Pass `--deep` to run a thorough research pass (web search + ecosystem scan) before building the roadmap. Pass `--topic` or `--topic-file` to research a specific question — this writes a report to `.dev/research/{slug}/report.md` without producing a roadmap. The roadmap step is not required, but the planner produces much better tasks with this context.
 
 ### Plan
 
 ```bash
-# Lazy: auto-runs research + roadmap first if they don't exist
+# Lazy: auto-runs roadmap first if it doesn't exist
 autopilot plan .
 
 # Seed with a TODO list, spec, or design doc — skips lazy research
@@ -86,6 +88,7 @@ For open-ended goals — "get this library to a publishable state", "make this A
 
 ```bash
 autopilot roadmap .
+autopilot roadmap --deep .    # deep research first
 ```
 
 The roadmap agent writes `.dev/roadmap.md` with:
@@ -123,7 +126,6 @@ With `--loop`, sprints repeat until the goal is met or `max_sprints` is reached.
 Every command works with `--scan` to operate across an entire directory:
 
 ```bash
-autopilot research --scan ~/Projects
 autopilot roadmap --scan ~/Projects
 autopilot plan --scan ~/Projects
 autopilot run --auto-approve --scan ~/Projects
@@ -214,8 +216,8 @@ Agent configs live in `src/autopilot/agents/*.md` — YAML frontmatter + system 
 | `worker` | `run` | Executes a task: implements, tests, commits |
 | `planner` | `plan` | Creates `.dev/sprint.md` with structured tasks |
 | `critic` | `plan --review` | Reviews plan adversarially, edits manifest directly |
-| `researcher` | `research` | Analyzes codebase → `.dev/project-summary.md` |
-| `deep-researcher` | `research --deep` | Extended analysis with web search |
+| `researcher` | (internal) | Analyzes codebase → `.dev/project-summary.md` |
+| `deep-researcher` | `roadmap --deep` | Extended analysis with web search |
 | `roadmap` | `roadmap` / `sprint` | Shipping target + goal + validate → `.dev/roadmap.md` (create mode); evaluates sprint completion (evaluate mode) |
 | `portfolio` | `portfolio` | Cross-project index → `<scan_dir>/.dev/portfolio.md` |
 

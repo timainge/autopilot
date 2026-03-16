@@ -48,12 +48,8 @@ async def plan_project(
     if cfg is None:
         cfg = load_config(project_path)
 
-    # Without explicit context, lazily run research + roadmap if artifacts don't exist
+    # Without explicit context, lazily build roadmap if it doesn't exist
     if not context_file:
-        if not cfg.summary_path(project_path).exists():
-            log(project_name, "No context provided — running research first", "🔬")
-            await research_project(project_path, agents_dir, cfg=cfg)
-
         if not cfg.roadmap_path(project_path).exists():
             log(project_name, "No roadmap found — building roadmap before planning", "🗺️")
             await roadmap_project(project_path, agents_dir, cfg=cfg)
@@ -195,12 +191,26 @@ async def research_project(
 async def roadmap_project(
     project_path: Path,
     agents_dir: Path,
+    deep: bool = False,
+    topic: str | None = None,
+    topic_file: Path | None = None,
     cfg: AutopilotConfig | None = None,
 ) -> None:
     """Run the roadmap agent on a single project."""
     project_name = project_path.name
     if cfg is None:
         cfg = load_config(project_path)
+
+    # Topic mode: delegate entirely to deep researcher, no roadmap written
+    if topic or topic_file:
+        await deep_research_project(
+            project_path, agents_dir, topic=topic, topic_file=topic_file, cfg=cfg
+        )
+        return
+
+    # Deep mode: run deep researcher first to produce research reports, then proceed
+    if deep:
+        await deep_research_project(project_path, agents_dir, cfg=cfg)
 
     try:
         roadmap_config = load_agent_config("roadmap", agents_dir)

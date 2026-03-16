@@ -31,11 +31,9 @@ Single Python package at `src/autopilot/`. Key modules:
 1. **Judge phase** — if `approved: false`, runs the judge agent. Human must set `approved: true` (or pass `--auto-approve`).
 2. **Worker phase** — if `approved: true`, loops through pending tasks sequentially. Each task: spawn worker agent → verify marked done → retry on failure up to `max_task_attempts`.
 
-**`plan`**: Lazily runs researcher + roadmap agents if `.dev/project-summary.md` / `.dev/roadmap.md` don't exist, then runs the planner agent to write `.dev/sprint.md`. Pass `--context <file>` to skip lazy research and seed the planner directly. Pass `--review` to run the critic agent afterwards.
+**`plan`**: Lazily runs roadmap agent if `.dev/roadmap.md` doesn't exist, then runs the planner agent to write `.dev/sprint.md`. Pass `--context <file>` to skip lazy research and seed the planner directly. Pass `--review` to run the critic agent afterwards.
 
-**`research`**: Runs researcher agent → writes `.dev/project-summary.md`. Incremental: re-running compares stored commit hash against current state, does full or partial re-analysis as needed.
-
-**`roadmap`**: Runs roadmap agent → writes `.dev/roadmap.md` with `goal:`, `archetype:`, and `validate:` frontmatter plus shipping steps. Uses research summary if available. The roadmap is the authoritative goal+validate artifact used by `sprint`.
+**`roadmap`**: Runs roadmap agent → writes `.dev/roadmap.md` with `goal:`, `archetype:`, and `validate:` frontmatter plus shipping steps. Uses research summary if available. The roadmap is the authoritative goal+validate artifact used by `sprint`. Pass `--deep` to run deep research first. Pass `--topic "question"` or `--topic-file brief.md` to run topic research (writes `.dev/research/{slug}/report.md`, no roadmap written).
 
 **`portfolio`**: Runs portfolio agent across all discovered projects → writes `<scan_dir>/.dev/portfolio.md`. Requires `--scan` or explicit paths.
 
@@ -63,9 +61,10 @@ All autopilot working files within a project live under `.dev/` (which should be
 ```bash
 uv pip install -e .                          # Install (editable)
 autopilot run .                              # Run on current directory
-autopilot plan .                             # Generate/improve manifest (lazy research first)
-autopilot research .                         # Analyse project
+autopilot plan .                             # Generate/improve manifest (lazy roadmap first)
 autopilot roadmap .                          # Build shipping roadmap (goal + validate)
+autopilot roadmap --deep .                   # Deep research then build roadmap
+autopilot roadmap --topic "question" .       # Research a specific topic
 autopilot sprint .                           # Run one sprint against roadmap
 autopilot sprint --loop --auto-approve .    # Run sprints until goal is met
 autopilot run --scan ~/Projects             # Auto-discover and process all projects

@@ -22,15 +22,13 @@ from .manifest import (
 )
 from .orchestrator import (
     build_portfolio,
-    deep_research_project,
     plan_project,
     process_project,
-    research_project,
     roadmap_project,
     sprint_project,
 )
 
-SUBCOMMANDS = {"run", "plan", "research", "roadmap", "portfolio", "sprint"}
+SUBCOMMANDS = {"run", "plan", "roadmap", "portfolio", "sprint"}
 _VALUE_FLAGS = {"--scan", "--agents-dir", "--context", "--topic", "--topic-file"}
 _TERMINAL_FLAGS = {"--version", "--help", "-h"}  # let top-level parser handle these
 
@@ -124,30 +122,6 @@ def parse_args() -> argparse.Namespace:
         help="Run a critic agent after planning to verify and improve the plan",
     )
 
-    # research subcommand
-    research_p = subparsers.add_parser(
-        "research", help="Run the researcher agent to analyze projects"
-    )
-    _add_common(research_p)
-    research_p.add_argument(
-        "--all",
-        dest="include_all",
-        action="store_true",
-        help="Include all projects (don't skip forks/clones)",
-    )
-    research_p.add_argument(
-        "--deep", action="store_true", help="Run deep project analysis (more thorough, higher cost)"
-    )
-    research_p.add_argument(
-        "--topic", type=str, default=None, help="Research a specific question or topic"
-    )
-    research_p.add_argument(
-        "--topic-file",
-        type=Path,
-        default=None,
-        help="File containing a research brief for topic research",
-    )
-
     # roadmap subcommand
     roadmap_p = subparsers.add_parser("roadmap", help="Build a shipping roadmap for each project")
     _add_common(roadmap_p)
@@ -156,6 +130,23 @@ def parse_args() -> argparse.Namespace:
         dest="include_all",
         action="store_true",
         help="Include all projects (don't skip forks/clones)",
+    )
+    roadmap_p.add_argument(
+        "--deep",
+        action="store_true",
+        help="Run deep research (web search + ecosystem scan) before building roadmap",
+    )
+    roadmap_p.add_argument(
+        "--topic",
+        type=str,
+        default=None,
+        help="Research a specific topic (writes .dev/research/{slug}/report.md, no roadmap)",
+    )
+    roadmap_p.add_argument(
+        "--topic-file",
+        type=Path,
+        default=None,
+        help="File containing a research brief for topic research",
     )
 
     # portfolio subcommand
@@ -189,7 +180,7 @@ def parse_args() -> argparse.Namespace:
 async def async_main() -> None:
     args = parse_args()
     if (
-        args.subcommand == "research"
+        args.subcommand == "roadmap"
         and getattr(args, "topic", None)
         and getattr(args, "topic_file", None)
     ):
@@ -208,7 +199,7 @@ async def async_main() -> None:
 
     project_paths: list[Path] = []
 
-    broad = args.subcommand in {"plan", "research", "roadmap", "portfolio"}
+    broad = args.subcommand in {"plan", "roadmap", "portfolio"}
 
     if args.subcommand == "portfolio" and not args.scan and not args.projects:
         print("  portfolio requires --scan or explicit project paths.")
@@ -230,7 +221,7 @@ async def async_main() -> None:
         project_paths = [Path(p).expanduser().resolve() for p in args.projects]
     else:
         cwd = Path.cwd()
-        if args.subcommand in {"research", "plan", "roadmap"}:
+        if args.subcommand in {"plan", "roadmap"}:
             project_paths = [cwd]
         elif global_cfg.sprint_path(cwd).exists():
             project_paths = [cwd]
@@ -307,19 +298,15 @@ async def async_main() -> None:
                     await plan_project(
                         project_path, agents_dir, context_file, review=args.review, cfg=cfg
                     )
-                case "research":
-                    if args.deep or getattr(args, "topic", None) or topic_file:
-                        await deep_research_project(
-                            project_path,
-                            agents_dir,
-                            topic=getattr(args, "topic", None),
-                            topic_file=topic_file,
-                            cfg=cfg,
-                        )
-                    else:
-                        await research_project(project_path, agents_dir, cfg=cfg)
                 case "roadmap":
-                    await roadmap_project(project_path, agents_dir, cfg=cfg)
+                    await roadmap_project(
+                        project_path,
+                        agents_dir,
+                        deep=getattr(args, "deep", False),
+                        topic=getattr(args, "topic", None),
+                        topic_file=topic_file,
+                        cfg=cfg,
+                    )
                 case "sprint":
                     await sprint_project(
                         project_path,
