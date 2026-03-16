@@ -37,7 +37,7 @@ export CLAUDE_CODE_OAUTH_TOKEN=<token from above>
 
 ## Task Execution
 
-The basic flow: roadmap → plan → run.
+The basic flow: roadmap → plan → sprint. Or use `build` to combine plan + sprint in one shot.
 
 ### Roadmap (optional but recommended)
 
@@ -65,18 +65,33 @@ autopilot plan --review .
 
 The planner writes `.dev/sprint.md` — a markdown file with YAML frontmatter and checkbox tasks. The `--review` flag runs a critic agent that checks file references, catches missing dependencies, and sharpens vague descriptions.
 
-### Run
+### Sprint
 
 ```bash
-autopilot run .
+autopilot sprint .
 
-# Auto-approve when the judge says READY
-autopilot run --auto-approve .
+# Bypass the approval check
+autopilot sprint --auto-approve .
+
+# Reset stuck projects and retry failed tasks
+autopilot sprint --resume .
 ```
 
-On first run with `approved: false`, the judge evaluates the manifest and prints a READY / NOT_READY verdict with feedback. Set `approved: true` manually, or pass `--auto-approve` to let autopilot set it when the judge returns READY.
+Executes the approved `.dev/sprint.md` task manifest. Autopilot loops through tasks sequentially. Each task spawns a fresh Claude Code session that implements the work, commits, and marks the checkbox done. Failed tasks are retried up to `max_task_attempts` times.
 
-Once approved, autopilot loops through tasks sequentially. Each task spawns a fresh Claude Code session that implements the work, commits, and marks the checkbox done. Failed tasks are retried up to `max_task_attempts` times.
+If `approved: false` in the manifest, sprint refuses to execute unless `--auto-approve` is passed.
+
+### Build (one-shot)
+
+```bash
+# Plan then execute in one command
+autopilot build .
+
+# With context file for the planner
+autopilot build --context spec.md .
+```
+
+Equivalent to running `autopilot plan .` followed by `autopilot sprint --auto-approve .`.
 
 ---
 
@@ -128,8 +143,7 @@ Every command works with `--scan` to operate across an entire directory:
 ```bash
 autopilot roadmap --scan ~/Projects
 autopilot plan --scan ~/Projects
-autopilot run --auto-approve --scan ~/Projects
-autopilot sprint --loop --auto-approve --scan ~/Projects
+autopilot sprint --auto-approve --scan ~/Projects
 ```
 
 `portfolio` is multi-project only — it builds a cross-project index with analysis by tech stack, current state, and prioritized quick wins:
@@ -159,8 +173,8 @@ Use `--all` to include forks and clones.
 
 Two key manifest files:
 
-- **`.dev/sprint.md`** — task manifest, written by `plan`, read by `run`. Contains tasks with checkboxes. In sprint mode, overwritten each iteration by the sprint planner.
-- **`.dev/roadmap.md`** — roadmap manifest, written by `roadmap`, read by `sprint`. Contains a goal, archetype, `validate` commands in YAML frontmatter, plus the shipping roadmap body.
+- **`.dev/sprint.md`** — task manifest, written by `plan`, read by `sprint`. Contains tasks with checkboxes.
+- **`.dev/roadmap.md`** — roadmap manifest, written by `roadmap`. Contains a goal, archetype, `validate` commands in YAML frontmatter, plus the shipping roadmap body.
 
 Both use YAML frontmatter + markdown format. Add `.dev/` to `.gitignore` — it contains orchestration state, not source code.
 
@@ -212,8 +226,8 @@ Agent configs live in `src/autopilot/agents/*.md` — YAML frontmatter + system 
 
 | Role | Command | What it does |
 |------|---------|--------------|
-| `judge` | `run` | Evaluates manifest readiness, prints READY / NOT_READY |
-| `worker` | `run` | Executes a task: implements, tests, commits |
+| `judge` | (internal) | Evaluates manifest readiness, prints READY / NOT_READY |
+| `worker` | `sprint` | Executes a task: implements, tests, commits |
 | `planner` | `plan` | Creates `.dev/sprint.md` with structured tasks |
 | `critic` | `plan --review` | Reviews plan adversarially, edits manifest directly |
 | `researcher` | (internal) | Analyzes codebase → `.dev/project-summary.md` |

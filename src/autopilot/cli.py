@@ -22,19 +22,19 @@ from .manifest import (
 )
 from .orchestrator import (
     build_portfolio,
+    build_project,
+    execute_sprint,
     plan_project,
-    process_project,
     roadmap_project,
-    sprint_project,
 )
 
-SUBCOMMANDS = {"run", "plan", "roadmap", "portfolio", "sprint"}
+SUBCOMMANDS = {"sprint", "plan", "roadmap", "portfolio", "build"}
 _VALUE_FLAGS = {"--scan", "--agents-dir", "--context", "--topic", "--topic-file"}
 _TERMINAL_FLAGS = {"--version", "--help", "-h"}  # let top-level parser handle these
 
 
 def _inject_default_subcommand() -> None:
-    """Inject 'run' as the default subcommand if none is present."""
+    """Inject 'sprint' as the default subcommand if none is present."""
     raw = sys.argv[1:]
     if raw and raw[0] in _TERMINAL_FLAGS:
         return  # don't inject — top-level parser handles --version/--help
@@ -52,7 +52,7 @@ def _inject_default_subcommand() -> None:
             return  # subcommand already present
         else:
             break  # first positional is a path, not a subcommand
-    sys.argv.insert(1, "run")
+    sys.argv.insert(1, "sprint")
 
 
 def _default_agents_dir() -> Path:
@@ -91,18 +91,18 @@ def parse_args() -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="subcommand")
     subparsers.required = True
 
-    # run subcommand
-    run_p = subparsers.add_parser("run", help="Execute pending tasks for projects")
-    _add_common(run_p)
-    run_p.add_argument(
+    # sprint subcommand
+    sprint_p = subparsers.add_parser("sprint", help="Execute an approved sprint plan")
+    _add_common(sprint_p)
+    sprint_p.add_argument(
         "--resume",
         action="store_true",
         help="Reset stuck projects and retry failed tasks",
     )
-    run_p.add_argument(
+    sprint_p.add_argument(
         "--auto-approve",
         action="store_true",
-        help="Automatically approve the manifest if the judge deems it ready",
+        help="Bypass the approved check and execute regardless",
     )
 
     # plan subcommand
@@ -161,17 +161,21 @@ def parse_args() -> argparse.Namespace:
         help="Include all projects (don't skip forks/clones)",
     )
 
-    sprint_p = subparsers.add_parser("sprint", help="Run a sprint cycle against the roadmap")
-    _add_common(sprint_p)
-    sprint_p.add_argument(
-        "--auto",
-        action="store_true",
-        help="Loop sprints until the goal is met (or max_sprints reached)",
+    # build subcommand
+    build_p = subparsers.add_parser(
+        "build", help="Plan and execute a sprint in one shot (plan + sprint)"
     )
-    sprint_p.add_argument(
+    _add_common(build_p)
+    build_p.add_argument(
+        "--context",
+        type=Path,
+        default=None,
+        help="File to use as additional context for planning",
+    )
+    build_p.add_argument(
         "--auto-approve",
         action="store_true",
-        help="Automatically approve sprint plans without human review",
+        help="Bypass the approved check when executing",
     )
 
     return parser.parse_args()
@@ -221,7 +225,7 @@ async def async_main() -> None:
         project_paths = [Path(p).expanduser().resolve() for p in args.projects]
     else:
         cwd = Path.cwd()
-        if args.subcommand in {"plan", "roadmap"}:
+        if args.subcommand in {"plan", "roadmap", "build"}:
             project_paths = [cwd]
         elif global_cfg.sprint_path(cwd).exists():
             project_paths = [cwd]
@@ -250,7 +254,7 @@ async def async_main() -> None:
                 "       git config --global autopilot.user <username>\n"
             )
 
-    mode_label = "Autopilot" if args.subcommand == "run" else args.subcommand.capitalize()
+    mode_label = args.subcommand.capitalize()
     log_header(f"{mode_label} — {len(project_paths)} project(s)")
 
     if skipped:
@@ -264,8 +268,9 @@ async def async_main() -> None:
         print(f"  [DRY RUN MODE — no agents will be executed ({dry_label})]\n")
         for path in project_paths:
             if broad:
-                has_summary = (path / ".dev" / "project-summary.md").exists()
-                tag = "has summary" if has_summary else "no summary"
+                cfg = load_config(path)
+                has_roadmap = cfg.roadmap_path(path).exists()
+                tag = "has roadmap" if has_roadmap else "no roadmap"
                 print(f"  {path.name}: would {dry_label} ({tag})")
             else:
                 manifest = load_sprint_plan(path, load_config(path))
@@ -308,29 +313,32 @@ async def async_main() -> None:
                         cfg=cfg,
                     )
                 case "sprint":
-                    await sprint_project(
-                        project_path,
-                        agents_dir,
-                        auto_loop=args.auto,
-                        auto_approve=args.auto_approve,
-                        cfg=cfg,
-                    )
-                case "run":
                     if args.resume:
                         if reset_stuck_project(project_path):
                             log(
-                                str(project_path.name),
+                                project_path.name,
                                 "Reset stuck project — retrying failed tasks",
                                 "🔄",
                             )
                         else:
                             log(
-                                str(project_path.name),
+                                project_path.name,
                                 "Project is not stuck — proceeding normally",
                                 "ℹ️",
                             )
-                    await process_project(
-                        project_path, agents_dir, auto_approve=args.auto_approve, cfg=cfg
+                    await execute_sprint(
+                        project_path,
+                        agents_dir,
+                        auto_approve=args.auto_approve,
+                        cfg=cfg,
+                    )
+                case "build":
+                    await build_project(
+                        project_path,
+                        agents_dir,
+                        context_file=context_file,
+                        auto_approve=args.auto_approve,
+                        cfg=cfg,
                     )
 
     log_header(f"{mode_label} — complete")

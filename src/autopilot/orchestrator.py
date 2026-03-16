@@ -355,108 +355,88 @@ async def run_validation_hooks(
     return (True, output)
 
 
-async def process_project(
+async def execute_sprint(
     project_path: Path,
     agents_dir: Path,
     auto_approve: bool = False,
     cfg: AutopilotConfig | None = None,
-) -> None:
-    """Process a single project through the orchestration pipeline."""
+) -> tuple[int, int, int]:
+    """Execute pending tasks from sprint.md.
+
+    Returns (tasks_planned, tasks_completed, tasks_failed).
+    """
     project_name = project_path.name
     if cfg is None:
         cfg = load_config(project_path)
 
-    manifest = load_sprint_plan(project_path, cfg)
-    if manifest is None:
-        manifest_hint = cfg.sprint_path(project_path)
-        log(project_name, f"No {manifest_hint} found — skipping", "⏭️")
-        return
+    sprint_manifest = load_sprint_plan(project_path, cfg)
+    if sprint_manifest is None:
+        log(project_name, "No .dev/sprint.md found — run 'autopilot plan .' first", "❌")
+        return (0, 0, 0)
 
-    log(project_name, f"Loaded manifest: {manifest.name} ({get_task_summary(manifest)})", "📋")
+    log(
+        project_name,
+        f"Loaded sprint plan: {sprint_manifest.name} ({get_task_summary(sprint_manifest)})",
+        "📋",
+    )
 
-    if manifest.status == "completed":
-        log(project_name, "Project already completed", "✅")
-        return
+    if sprint_manifest.status == "completed":
+        log(project_name, "Sprint already completed", "✅")
+        return (0, 0, 0)
 
-    if manifest.status == "paused":
-        log(project_name, "Project is paused — skipping", "⏸️")
-        return
+    if sprint_manifest.status == "paused":
+        log(project_name, "Sprint is paused — skipping", "⏸️")
+        return (0, 0, 0)
 
-    if manifest.status == "stuck":
-        log(project_name, "Project is stuck — run 'autopilot run --resume' to retry", "🛑")
-        return
+    if sprint_manifest.status == "stuck":
+        log(project_name, "Sprint is stuck — run 'autopilot sprint --resume .' to retry", "🛑")
+        return (0, 0, 0)
 
-    # --- Step 1: Check approval / run judge ---
+    # Check approval
+    if not sprint_manifest.approved:
+        if not auto_approve:
+            log(
+                project_name,
+                "sprint.md is not approved — run 'autopilot plan .' first,"
+                " or set approved: true manually",
+                "❌",
+            )
+            return (0, 0, 0)
+        # auto_approve bypasses the check
+        log(project_name, "Auto-approve: bypassing approval check", "⚠️")
 
-    if not manifest.approved:
-        log(project_name, "Not approved — running readiness evaluation...", "🔍")
+    update_manifest_frontmatter(sprint_manifest, {"status": "active"})
 
-        try:
-            judge_config = load_agent_config("judge", agents_dir)
-        except FileNotFoundError:
-            log(project_name, "No judge agent config found — skipping", "❌")
-            return
-
-        judge_prompt = build_judge_prompt(manifest)
-        result = await run_agent(
-            judge_config,
-            project_path,
-            judge_prompt,
-            project_name=project_name,
-            role_name="judge",
-        )
-
-        if not result.success:
-            log(project_name, f"Judge failed: {result.error}", "❌")
-            return
-
-        is_ready, feedback = parse_judge_result(result.output)
-
-        if result.cost_usd > 0:
-            log(project_name, f"Judge cost: ${result.cost_usd:.4f}", "💰")
-
-        if not is_ready:
-            log(project_name, "Judge verdict: NOT READY", "⚠️")
-            for line in feedback.split("\n")[:15]:
-                if line.strip():
-                    print(f"           {line}")
-            return
-
-        log(project_name, "Judge verdict: READY", "✅")
-
-        if auto_approve:
-            update_manifest_frontmatter(manifest, {"approved": True})
-            log(project_name, "Auto-approved — proceeding to task execution", "🚀")
-            manifest = load_sprint_plan(project_path, cfg) or manifest
-            # Fall through to task execution below
-        else:
-            log(project_name, "Set 'approved: true' in manifest to begin execution", "👉")
-            return
-
-    # --- Step 2: Execute tasks sequentially ---
-
-    update_manifest_frontmatter(manifest, {"status": "active"})
+    tasks_completed = 0
+    tasks_failed = 0
 
     while True:
-        task = get_next_task(manifest)
+        current_sprint = load_sprint_plan(project_path, cfg)
+        if current_sprint is None:
+            break
+        task = get_next_task(current_sprint)
 
         if task is None:
-            all_done = all(t.status == "done" for t in manifest.tasks)
+            all_done = all(t.status == "done" for t in current_sprint.tasks)
             if all_done:
-                update_manifest_frontmatter(manifest, {"status": "completed"})
-                log(project_name, f"All tasks complete! ({get_task_summary(manifest)})", "🎉")
+                update_manifest_frontmatter(current_sprint, {"status": "completed"})
+                log(
+                    project_name,
+                    f"All tasks complete! ({get_task_summary(current_sprint)})",
+                    "🎉",
+                )
             else:
                 stuck_tasks = [
                     t
-                    for t in manifest.tasks
-                    if t.status != "done" and t.attempts >= manifest.max_task_attempts
+                    for t in current_sprint.tasks
+                    if t.status != "done" and t.attempts >= current_sprint.max_task_attempts
                 ]
                 blocked_tasks = [
                     t
-                    for t in manifest.tasks
+                    for t in current_sprint.tasks
                     if t.status == "pending"
                     and not all(
-                        dep in {tt.id for tt in manifest.tasks if tt.status == "done"}
+                        dep in {tt.id for tt in current_sprint.tasks if tt.status == "done"}
                         for dep in t.depends
                     )
                 ]
@@ -469,18 +449,18 @@ async def process_project(
                     n = len(blocked_tasks)
                     log(project_name, f"Blocked — {n} task(s) have unsatisfied deps", "🛑")
                 else:
-                    summary = get_task_summary(manifest)
+                    summary = get_task_summary(current_sprint)
                     log(project_name, f"No runnable tasks remain ({summary})", "🛑")
-
-                update_manifest_frontmatter(manifest, {"status": "stuck"})
+                update_manifest_frontmatter(current_sprint, {"status": "stuck"})
             break
 
-        task_idx = next((i for i, t in enumerate(manifest.tasks) if t.id == task.id), 0)
-        total = len(manifest.tasks)
+        task_idx = next((i for i, t in enumerate(current_sprint.tasks) if t.id == task.id), 0)
+        total = len(current_sprint.tasks)
         attempt_str = f" (attempt {task.attempts + 1})" if task.attempts > 0 else ""
-
         log(
-            project_name, f'Starting task {task_idx + 1}/{total}: "{task.title}"{attempt_str}', "🔧"
+            project_name,
+            f'Starting task {task_idx + 1}/{total}: "{task.title}"{attempt_str}',
+            "🔧",
         )
 
         try:
@@ -489,7 +469,10 @@ async def process_project(
             log(project_name, "No worker agent config found — stopping", "❌")
             break
 
-        worker_prompt = build_worker_prompt(manifest, task)
+        sprint_plan_path = str(cfg.sprint_path(project_path))
+        worker_prompt = build_worker_prompt(
+            current_sprint, task, sprint_plan_path=sprint_plan_path
+        )
         result = await run_agent(
             worker_config,
             project_path,
@@ -504,12 +487,12 @@ async def process_project(
         new_attempts = task.attempts + 1
 
         if result.success:
-            updated_manifest = load_sprint_plan(project_path, cfg)
-            if updated_manifest:
-                updated_task = next((t for t in updated_manifest.tasks if t.id == task.id), None)
+            reloaded = load_sprint_plan(project_path, cfg)
+            if reloaded:
+                updated_task = next((t for t in reloaded.tasks if t.id == task.id), None)
                 if updated_task and updated_task.status == "done":
+                    tasks_completed += 1
                     log(project_name, f'Task complete: "{task.title}"', "✅")
-                    manifest = updated_manifest
                     continue
                 else:
                     log(
@@ -518,29 +501,24 @@ async def process_project(
                         "⚠️",
                     )
                     update_task_status(
-                        manifest,
+                        current_sprint,
                         task.id,
                         "pending",
                         error="Worker completed without marking task done",
                         attempts=new_attempts,
                     )
-                    manifest = load_sprint_plan(project_path, cfg) or manifest
             else:
-                log(project_name, "Could not reload manifest after task", "❌")
+                log(project_name, "Could not reload sprint plan after task", "❌")
                 break
         else:
             error_msg = result.error or "Unknown error"
             log(project_name, f"Task failed: {error_msg[:100]}", "❌")
-
-            if new_attempts >= manifest.max_task_attempts:
+            if new_attempts >= current_sprint.max_task_attempts:
                 update_task_status(
-                    manifest,
-                    task.id,
-                    "failed",
-                    error=error_msg,
-                    attempts=new_attempts,
+                    current_sprint, task.id, "failed", error=error_msg, attempts=new_attempts
                 )
-                max_att = manifest.max_task_attempts
+                tasks_failed += 1
+                max_att = current_sprint.max_task_attempts
                 log(
                     project_name,
                     f'Task "{task.title}" exceeded {max_att} attempts — marking failed',
@@ -548,15 +526,31 @@ async def process_project(
                 )
             else:
                 update_task_status(
-                    manifest,
-                    task.id,
-                    "pending",
-                    error=error_msg,
-                    attempts=new_attempts,
+                    current_sprint, task.id, "pending", error=error_msg, attempts=new_attempts
                 )
-                log(project_name, f"Will retry ({new_attempts}/{manifest.max_task_attempts})", "🔄")
+                log(
+                    project_name,
+                    f"Will retry ({new_attempts}/{current_sprint.max_task_attempts})",
+                    "🔄",
+                )
 
-            manifest = load_sprint_plan(project_path, cfg) or manifest
+    final = load_sprint_plan(project_path, cfg)
+    tasks_planned = len(final.tasks) if final else 0
+    return (tasks_planned, tasks_completed, tasks_failed)
+
+
+async def build_project(
+    project_path: Path,
+    agents_dir: Path,
+    context_file: Path | None = None,
+    auto_approve: bool = False,
+    cfg: AutopilotConfig | None = None,
+) -> None:
+    """Run plan then execute sprint. One-shot: plan -> sprint."""
+    if cfg is None:
+        cfg = load_config(project_path)
+    await plan_project(project_path, agents_dir, context_file=context_file, cfg=cfg)
+    await execute_sprint(project_path, agents_dir, auto_approve=auto_approve, cfg=cfg)
 
 
 async def sprint_project(
@@ -685,90 +679,11 @@ async def sprint_project(
         elif not is_ready and auto_approve:
             log(project_name, "Sprint plan not ready but auto-approve is set — continuing", "⚠️")
 
-        # Step 12: Execute tasks from sprint.md sequentially
-        total_cost = 0.0
-        tasks_completed = 0
-        tasks_failed = 0
-
-        async def _run_sprint_tasks() -> int:
-            """Execute pending tasks from sprint plan. Returns tasks_planned count."""
-            nonlocal total_cost, tasks_completed, tasks_failed
-            while True:
-                current_sprint = load_sprint_plan(project_path, cfg)
-                if current_sprint is None:
-                    break
-                task = get_next_task(current_sprint)
-                if task is None:
-                    return len(current_sprint.tasks)
-                try:
-                    worker_config = load_agent_config("worker", agents_dir)
-                except FileNotFoundError:
-                    log(project_name, "No worker agent config found — stopping", "❌")
-                    return len(current_sprint.tasks)
-
-                task_idx = next(
-                    (i for i, t in enumerate(current_sprint.tasks) if t.id == task.id), 0
-                )
-                total = len(current_sprint.tasks)
-                attempt_str = f" (attempt {task.attempts + 1})" if task.attempts > 0 else ""
-                log(
-                    project_name,
-                    f'Sprint task {task_idx + 1}/{total}: "{task.title}"{attempt_str}',
-                    "🔧",
-                )
-
-                worker_prompt = build_worker_prompt(
-                    current_sprint, task, sprint_plan_path=sprint_plan_path
-                )
-                result = await run_agent(
-                    worker_config,
-                    project_path,
-                    worker_prompt,
-                    project_name=project_name,
-                    role_name="worker",
-                )
-                total_cost += result.cost_usd
-                new_attempts = task.attempts + 1
-
-                if result.success:
-                    reloaded = load_sprint_plan(project_path, cfg)
-                    if reloaded:
-                        updated_task = next((t for t in reloaded.tasks if t.id == task.id), None)
-                        if updated_task and updated_task.status == "done":
-                            tasks_completed += 1
-                            continue
-                        else:
-                            update_task_status(
-                                current_sprint,
-                                task.id,
-                                "pending",
-                                error="Worker completed without marking task done",
-                                attempts=new_attempts,
-                            )
-                else:
-                    if new_attempts >= current_sprint.max_task_attempts:
-                        update_task_status(
-                            current_sprint,
-                            task.id,
-                            "failed",
-                            error=result.error or "Unknown error",
-                            attempts=new_attempts,
-                        )
-                        tasks_failed += 1
-                    else:
-                        update_task_status(
-                            current_sprint,
-                            task.id,
-                            "pending",
-                            error=result.error or "Unknown error",
-                            attempts=new_attempts,
-                        )
-
-            # fallback: reload to get final task count
-            final = load_sprint_plan(project_path, cfg)
-            return len(final.tasks) if final else 0
-
-        tasks_planned = await _run_sprint_tasks()
+        # Step 12: Execute tasks from sprint.md
+        tasks_planned, tasks_completed, tasks_failed = await execute_sprint(
+            project_path, agents_dir, auto_approve=True, cfg=cfg
+        )
+        total_cost = 0.0  # cost tracking deferred to task-006
 
         # Step 13: Run validation hooks
         validation_passed, validation_output = await run_validation_hooks(
@@ -810,7 +725,9 @@ async def sprint_project(
                 role_name="planner",
             )
             if rem_result.success:
-                tasks_planned = await _run_sprint_tasks()
+                tasks_planned, tasks_completed, tasks_failed = await execute_sprint(
+                    project_path, agents_dir, auto_approve=True, cfg=cfg
+                )
 
             validation_passed, validation_output = await run_validation_hooks(
                 project_path, validation_commands
