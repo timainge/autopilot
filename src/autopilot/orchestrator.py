@@ -219,16 +219,30 @@ async def build_portfolio(
     if cfg is None:
         cfg = load_config(scan_dir)
 
+    # Ensure every project has a roadmap.md — run roadmapper if missing
+    for project in project_paths:
+        if not cfg.roadmap_path(project).exists():
+            has_summary = cfg.summary_path(project).exists()
+            has_research = (project / ".dev" / "research").exists()
+            use_deep = not has_summary and not has_research
+            log(
+                "portfolio",
+                f"No roadmap for {project.name}"
+                f" — generating{' (deep)' if use_deep else ''}...",
+                "🗺️",
+            )
+            await roadmap_project(project, agents_dir, deep=use_deep, cfg=cfg)
+
     try:
         portfolio_config = load_agent_config("portfolio", agents_dir)
     except FileNotFoundError:
         log("portfolio", "No portfolio agent config found", "❌")
         return
 
-    with_summary = sum(1 for p in project_paths if cfg.summary_path(p).exists())
+    with_roadmap = sum(1 for p in project_paths if cfg.roadmap_path(p).exists())
     log(
         "portfolio",
-        f"Analyzing {len(project_paths)} projects ({with_summary} with research summaries)...",
+        f"Analyzing {len(project_paths)} projects ({with_roadmap} with roadmaps)...",
         "📊",
     )
 

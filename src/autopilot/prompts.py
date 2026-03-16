@@ -121,36 +121,26 @@ def build_researcher_prompt(project_path: Path) -> str:
 
 def build_portfolio_prompt(scan_dir: Path, project_paths: list[Path]) -> str:
     """Build the prompt for the portfolio agent."""
-    with_summary = []
-    without_summary = []
-    for p in project_paths:
-        if (p / ".dev" / "project-summary.md").exists():
-            with_summary.append(p.name)
-        else:
-            without_summary.append(p.name)
-
     lines = [
         f"Analyze the projects under `{scan_dir}` and build a portfolio overview.",
         f"Write the output to `{scan_dir}/.dev/portfolio.md`.",
         "",
         f"Total projects: {len(project_paths)}",
         "",
+        "Each project has a `.dev/roadmap.md` — read it for the project's goal, target,",
+        "shipping status, and success criteria. This is your primary input per project.",
+        "",
+        "Projects to analyze:",
     ]
+    for p in project_paths:
+        has_summary = (p / ".dev" / "project-summary.md").exists()
+        extra = " (also has project-summary.md for additional detail)" if has_summary else ""
+        lines.append(f"  - {p.name}: read {p.name}/.dev/roadmap.md{extra}")
 
-    if with_summary:
-        lines.append(f"Projects WITH research summaries ({len(with_summary)}):")
-        for name in with_summary:
-            lines.append(f"  - {name} (read {name}/.dev/project-summary.md)")
-        lines.append("")
-
-    if without_summary:
-        lines.append(
-            f"Projects WITHOUT summaries ({len(without_summary)}) — do a quick assessment:"
-        )
-        for name in without_summary:
-            lines.append(f"  - {name}")
-        lines.append("")
-
+    lines += [
+        "",
+        "Follow the format in your system prompt to write portfolio.md.",
+    ]
     return "\n".join(lines)
 
 

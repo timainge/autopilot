@@ -140,13 +140,13 @@ autopilot plan --scan ~/Projects
 autopilot sprint --auto-approve --scan ~/Projects
 ```
 
-`portfolio` is multi-project only — it builds a cross-project index with analysis by tech stack, current state, and prioritized quick wins:
+`portfolio` is multi-project only — it builds a cross-project index with analysis by goal, tech stack, current state, and prioritized quick wins. It auto-generates `.dev/roadmap.md` for any project that lacks one before building the portfolio (using deep research if no existing research artifacts exist):
 
 ```bash
 autopilot portfolio --scan ~/Projects
 ```
 
-Output is written to `<scan_dir>/.dev/portfolio.md`.
+Output is written to `<scan_dir>/.dev/portfolio.md`. The portfolio agent reads each project's `roadmap.md` as its primary input.
 
 ### Fork filtering
 

@@ -37,7 +37,7 @@ Single Python package at `src/autopilot/`. Key modules:
 
 **`ralph`** (`orchestrator.py: ralph_project()`): Outer loop: `(plan → sprint → evaluate) × N` until GOAL_MET or stuck. Requires `.dev/roadmap.md`. Each iteration calls `plan_project()` (planner + critic + judge), `execute_sprint()` (worker loop), `run_validation_hooks()`, and `evaluate_project()`. If tasks fail, appends a deferred investigation task to `roadmap.md` and stops. Loops until `goal_met=True` or `max_sprints` reached.
 
-**`portfolio`**: Runs portfolio agent across all discovered projects → writes `<scan_dir>/.dev/portfolio.md`. Requires `--scan` or explicit paths.
+**`portfolio`**: Runs portfolio agent across all discovered projects → writes `<scan_dir>/.dev/portfolio.md`. Requires `--scan` or explicit paths. Auto-generates `.dev/roadmap.md` for any project that lacks one before building the portfolio (uses deep research if no existing research artifacts). The portfolio agent uses `roadmap.md` as its primary input per project.
 
 ## Key Patterns
 

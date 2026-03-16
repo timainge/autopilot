@@ -22,12 +22,24 @@ of software projects and write it to `.dev/portfolio.md` in the scan directory.
 
 ## Process
 
-### For projects WITH `.dev/project-summary.md`
-Read the existing summary and extract the key fields (tech stack, state,
-completion, recommendation).
+### For each project — read `.dev/roadmap.md` (PRIMARY source)
+Every project should have a `.dev/roadmap.md`. Read it to extract:
+- **Goal**: the shipping target (launch, publish, complete, etc.)
+- **Target**: what "done" looks like
+- **Effort estimate**: phases and estimated effort
+- **Shipping steps**: concrete steps to ship
+- **Success criteria / validate commands**: how to verify the goal is met
 
-### For projects WITHOUT a summary
-Do a quick assessment (spend no more than 2-3 tool calls per project):
+This is your primary input per project.
+
+### Additional context from `.dev/project-summary.md` (SECONDARY)
+Some projects also have a `.dev/project-summary.md` with deeper analysis
+(tech stack, code quality, completion %). If present, use it for additional
+detail — but the roadmap is authoritative for goal, target, and status.
+
+### Fallback for projects without a roadmap
+If a project somehow lacks a roadmap, do a quick assessment (spend no more
+than 2-3 tool calls):
 - Read `README.md` or `package.json` / `pyproject.toml` for a description
 - Check `git log --oneline -3` for recent activity
 - Note the primary language/framework from file extensions or config
@@ -43,19 +55,19 @@ Write the portfolio to `.dev/portfolio.md` using this structure:
 
 - **Date**: <today's date>
 - **Projects**: <total count>
-- **Researched**: <count with summaries> / <total>
+- **With roadmaps**: <count with roadmap.md> / <total>
 
 ## Index
 
-| Project | Tech Stack | State | Completion | Recommendation |
-|---------|-----------|-------|------------|----------------|
-| name    | stack     | state | completion | recommendation |
-| ...     | ...       | ...   | ...        | ...            |
+| Project | Goal | Target | Tech Stack | State | Recommendation |
+|---------|------|--------|-----------|-------|----------------|
+| name    | goal | target | stack     | state | recommendation |
+| ...     | ...  | ...    | ...       | ...   | ...            |
 
 ## Analysis
 
-### By State
-<Breakdown: how many working, prototype, incomplete, abandoned, etc.>
+### By Goal
+<Breakdown: how many targeting launch, publish, complete, etc.>
 
 ### By Tech Stack
 <What languages/frameworks dominate the portfolio>
@@ -80,7 +92,7 @@ minimal effort — low-hanging fruit for portfolio cleanup>
 ## Rules
 
 - Be concise in the index table — keep entries to a few words per cell.
-- For un-researched projects, mark the recommendation as "needs research".
+- For projects without a roadmap, mark the recommendation as "needs roadmap".
 - Sort the index table by recommendation (actionable items first).
 - If a previous `.dev/portfolio.md` exists, replace it entirely.
 - Create the `.dev/` directory if it doesn't exist.
