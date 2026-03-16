@@ -40,10 +40,13 @@ async def plan_project(
     project_path: Path,
     agents_dir: Path,
     context_file: Path | None = None,
-    review: bool = False,
     cfg: AutopilotConfig | None = None,
 ) -> None:
-    """Run the planner agent to create or improve a project manifest."""
+    """Run the planner agent to create or improve a project manifest.
+
+    Runs: planner -> critic (if config exists) -> judge loop (up to 2 rounds).
+    On judge READY, sets approved: true in sprint.md.
+    """
     project_name = project_path.name
     if cfg is None:
         cfg = load_config(project_path)
@@ -80,33 +83,130 @@ async def plan_project(
     if result.cost_usd > 0:
         log(project_name, f"Planner cost: ${result.cost_usd:.4f}", "💰")
 
-    if not result.success or not review:
+    if not result.success:
         return
 
+    # Critic always runs if config exists
     try:
         critic_config = load_agent_config("critic", agents_dir)
     except FileNotFoundError:
-        log(project_name, "No critic agent config found — skipping review", "⚠️")
-        return
-
-    log(project_name, "Running critic review...", "🔍")
-
-    critic_prompt = build_critic_prompt(project_path, context_file)
-    critic_result = await run_agent(
-        critic_config,
-        project_path,
-        critic_prompt,
-        project_name=project_name,
-        role_name="critic",
-    )
-
-    if critic_result.success:
-        log(project_name, "Critic review complete", "✅")
+        log(project_name, "No critic agent config found — skipping", "⚠️")
     else:
-        log(project_name, f"Critic review failed: {critic_result.error}", "❌")
+        log(project_name, "Running critic review...", "🔍")
+        critic_prompt = build_critic_prompt(project_path, context_file)
+        critic_result = await run_agent(
+            critic_config,
+            project_path,
+            critic_prompt,
+            project_name=project_name,
+            role_name="critic",
+        )
+        if critic_result.success:
+            log(project_name, "Critic review complete", "✅")
+        else:
+            log(project_name, f"Critic review failed: {critic_result.error}", "❌")
+        if critic_result.cost_usd > 0:
+            log(project_name, f"Critic cost: ${critic_result.cost_usd:.4f}", "💰")
 
-    if critic_result.cost_usd > 0:
-        log(project_name, f"Critic cost: ${critic_result.cost_usd:.4f}", "💰")
+    # Judge loop: up to 2 rounds of plan -> judge -> (revise -> judge)
+    max_judge_rounds = 2
+    judge_feedback = ""
+
+    for round_num in range(1, max_judge_rounds + 1):
+        # If this is a revision round, re-run planner with feedback
+        if round_num > 1 and judge_feedback:
+            log(
+                project_name,
+                f"Judge round {round_num}/{max_judge_rounds}: revising plan...",
+                "🔄",
+            )
+            revision_prompt = build_planner_prompt(
+                project_path, context_file, judge_feedback=judge_feedback
+            )
+            rev_result = await run_agent(
+                planner_config,
+                project_path,
+                revision_prompt,
+                project_name=project_name,
+                role_name="planner",
+            )
+            if not rev_result.success:
+                log(project_name, f"Revision failed: {rev_result.error}", "❌")
+                break
+            if rev_result.cost_usd > 0:
+                log(project_name, f"Revision cost: ${rev_result.cost_usd:.4f}", "💰")
+
+            # Re-run critic on revised plan (optional)
+            try:
+                critic_config_r = load_agent_config("critic", agents_dir)
+                critic_prompt_r = build_critic_prompt(project_path)
+                await run_agent(
+                    critic_config_r,
+                    project_path,
+                    critic_prompt_r,
+                    project_name=project_name,
+                    role_name="critic",
+                )
+            except FileNotFoundError:
+                pass
+
+        # Load current sprint plan for judge
+        current_plan = load_sprint_plan(project_path, cfg)
+        if current_plan is None:
+            log(project_name, "No sprint.md found for judge — skipping", "⚠️")
+            break
+
+        try:
+            judge_config = load_agent_config("judge", agents_dir)
+        except FileNotFoundError:
+            log(project_name, "No judge agent config found — skipping judge", "⚠️")
+            break
+
+        sprint_plan_path = str(cfg.sprint_path(project_path))
+        log(
+            project_name,
+            f"Judge round {round_num}/{max_judge_rounds}: evaluating plan...",
+            "🔍",
+        )
+        judge_prompt = build_judge_prompt(current_plan, sprint_plan_path=sprint_plan_path)
+        judge_result = await run_agent(
+            judge_config,
+            project_path,
+            judge_prompt,
+            project_name=project_name,
+            role_name="judge",
+        )
+
+        if judge_result.cost_usd > 0:
+            log(project_name, f"Judge cost: ${judge_result.cost_usd:.4f}", "💰")
+
+        is_ready, feedback = parse_judge_result(judge_result.output)
+
+        if is_ready:
+            update_manifest_frontmatter(current_plan, {"approved": True})
+            log(project_name, "Judge verdict: READY — sprint.md approved", "✅")
+            break
+        else:
+            log(
+                project_name,
+                f"Judge verdict: NOT_READY (round {round_num}/{max_judge_rounds})",
+                "⚠️",
+            )
+            for line in feedback.split("\n")[:10]:
+                if line.strip():
+                    print(f"           {line}")
+            judge_feedback = feedback
+            if round_num == max_judge_rounds:
+                log(
+                    project_name,
+                    "Could not approve plan after max revision rounds — review manually",
+                    "❌",
+                )
+                log(
+                    project_name,
+                    "Set 'approved: true' in .dev/sprint.md when ready",
+                    "👉",
+                )
 
 
 async def build_portfolio(

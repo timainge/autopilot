@@ -161,6 +161,7 @@ def build_planner_prompt(
     runbook: str = "",
     sprint_log: str = "",
     sprint_mode: bool = False,
+    judge_feedback: str = "",
 ) -> str:
     """Build the prompt for the planner agent."""
     if sprint_mode:
@@ -199,6 +200,17 @@ def build_planner_prompt(
                 "--- SPRINT LOG END ---",
             ]
 
+        if judge_feedback:
+            lines += [
+                "",
+                "REVISION REQUIRED — The previous plan was reviewed and found not ready.",
+                "The judge's feedback is below. Fix these issues and rewrite .dev/sprint.md.",
+                "",
+                "--- JUDGE FEEDBACK START ---",
+                judge_feedback,
+                "--- JUDGE FEEDBACK END ---",
+            ]
+
         return "\n".join(lines)
 
     lines = [
@@ -232,6 +244,17 @@ def build_planner_prompt(
             "",
             "No spec file was provided. Base Phase 1 exploration on the goal"
             " in the manifest frontmatter and your analysis of the codebase.",
+        ]
+
+    if judge_feedback:
+        lines += [
+            "",
+            "REVISION REQUIRED — The previous plan was reviewed and found not ready.",
+            "The judge's feedback is below. Fix these issues and rewrite .dev/sprint.md.",
+            "",
+            "--- JUDGE FEEDBACK START ---",
+            judge_feedback,
+            "--- JUDGE FEEDBACK END ---",
         ]
 
     return "\n".join(lines)

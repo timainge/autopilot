@@ -58,12 +58,9 @@ autopilot plan .
 
 # Seed with a TODO list, spec, or design doc — skips lazy research
 autopilot plan --context TODO.md .
-
-# Run a critic pass after planning
-autopilot plan --review .
 ```
 
-The planner writes `.dev/sprint.md` — a markdown file with YAML frontmatter and checkbox tasks. The `--review` flag runs a critic agent that checks file references, catches missing dependencies, and sharpens vague descriptions.
+The planner writes `.dev/sprint.md` — a markdown file with YAML frontmatter and checkbox tasks. A critic agent automatically reviews the plan (if its config exists), then a judge evaluates readiness. If the judge says NOT_READY, the planner revises once with the judge's feedback and the judge re-evaluates. When the judge approves, `approved: true` is set in the manifest automatically.
 
 ### Sprint
 
@@ -226,10 +223,10 @@ Agent configs live in `src/autopilot/agents/*.md` — YAML frontmatter + system 
 
 | Role | Command | What it does |
 |------|---------|--------------|
-| `judge` | (internal) | Evaluates manifest readiness, prints READY / NOT_READY |
+| `judge` | (internal to `plan`) | Evaluates manifest readiness, prints READY / NOT_READY |
 | `worker` | `sprint` | Executes a task: implements, tests, commits |
 | `planner` | `plan` | Creates `.dev/sprint.md` with structured tasks |
-| `critic` | `plan --review` | Reviews plan adversarially, edits manifest directly |
+| `critic` | (internal to `plan`) | Reviews plan adversarially, edits manifest directly |
 | `researcher` | (internal) | Analyzes codebase → `.dev/project-summary.md` |
 | `deep-researcher` | `roadmap --deep` | Extended analysis with web search |
 | `roadmap` | `roadmap` / `sprint` | Shipping target + goal + validate → `.dev/roadmap.md` (create mode); evaluates sprint completion (evaluate mode) |

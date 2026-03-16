@@ -31,7 +31,7 @@ Single Python package at `src/autopilot/`. Key modules:
 
 **`build`** (`orchestrator.py: build_project()`): One-shot workflow: runs `plan` then `sprint`. Equivalent to `autopilot plan . && autopilot sprint --auto-approve .`. Pass `--context <file>` to seed the planner.
 
-**`plan`**: Lazily runs roadmap agent if `.dev/roadmap.md` doesn't exist, then runs the planner agent to write `.dev/sprint.md`. Pass `--context <file>` to skip lazy research and seed the planner directly. Pass `--review` to run the critic agent afterwards.
+**`plan`**: Lazily runs roadmap agent if `.dev/roadmap.md` doesn't exist, then runs the planner agent to write `.dev/sprint.md`. The critic agent always runs if its config exists, followed by a judge loop (up to 2 rounds) that evaluates the plan and revises if needed. On judge READY, sets `approved: true` in sprint.md. Pass `--context <file>` to skip lazy research and seed the planner directly.
 
 **`roadmap`**: Runs roadmap agent → writes `.dev/roadmap.md` with `goal:`, `archetype:`, and `validate:` frontmatter plus shipping steps. Uses research summary if available. The roadmap is the authoritative goal+validate artifact. Pass `--deep` to run deep research first. Pass `--topic "question"` or `--topic-file brief.md` to run topic research (writes `.dev/research/{slug}/report.md`, no roadmap written).
 
@@ -63,7 +63,7 @@ autopilot sprint --auto-approve .            # Execute, bypassing approval check
 autopilot sprint --resume .                  # Reset stuck projects and retry
 autopilot build .                            # Plan then execute (one-shot)
 autopilot build --context spec.md .          # Plan with context, then execute
-autopilot plan .                             # Generate/improve manifest (lazy roadmap first)
+autopilot plan .                             # Generate/improve manifest (plan + critic + judge)
 autopilot roadmap .                          # Build shipping roadmap (goal + validate)
 autopilot roadmap --deep .                   # Deep research then build roadmap
 autopilot roadmap --topic "question" .       # Research a specific topic

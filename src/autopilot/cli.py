@@ -116,11 +116,6 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="File to use as additional context for planning (e.g. existing TODO list)",
     )
-    plan_p.add_argument(
-        "--review",
-        action="store_true",
-        help="Run a critic agent after planning to verify and improve the plan",
-    )
 
     # roadmap subcommand
     roadmap_p = subparsers.add_parser("roadmap", help="Build a shipping roadmap for each project")
@@ -301,7 +296,7 @@ async def async_main() -> None:
             match args.subcommand:
                 case "plan":
                     await plan_project(
-                        project_path, agents_dir, context_file, review=args.review, cfg=cfg
+                        project_path, agents_dir, context_file, cfg=cfg
                     )
                 case "roadmap":
                     await roadmap_project(
