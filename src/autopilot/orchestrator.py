@@ -12,10 +12,10 @@ from .manifest import (
     get_task_summary,
     load_agent_config,
     load_archetypes_index,
-    load_manifest,
     load_runbook,
     load_sprint_log,
     load_sprint_plan,
+    load_strategy_manifest,
     update_manifest_frontmatter,
     update_task_status,
 )
@@ -77,7 +77,7 @@ async def plan_project(
     )
 
     if result.success:
-        log(project_name, "Planning complete — see .dev/autopilot.md", "✅")
+        log(project_name, "Planning complete — see .dev/sprint.md", "✅")
     else:
         log(project_name, f"Planning failed: {result.error}", "❌")
 
@@ -273,7 +273,7 @@ async def strategize_project(
     )
 
     if result.success:
-        log(project_name, "Strategy manifest complete — see .dev/autopilot.md", "✅")
+        log(project_name, "Strategy manifest complete — see .dev/strategy.md", "✅")
     else:
         log(project_name, f"Strategist failed: {result.error}", "❌")
 
@@ -376,9 +376,9 @@ async def process_project(
     if cfg is None:
         cfg = load_config(project_path)
 
-    manifest = load_manifest(project_path, cfg=cfg)
+    manifest = load_sprint_plan(project_path, cfg)
     if manifest is None:
-        manifest_hint = cfg.manifest_path(project_path)
+        manifest_hint = cfg.sprint_path(project_path)
         log(project_name, f"No {manifest_hint} found — skipping", "⏭️")
         return
 
@@ -437,7 +437,7 @@ async def process_project(
         if auto_approve:
             update_manifest_frontmatter(manifest, {"approved": True})
             log(project_name, "Auto-approved — proceeding to task execution", "🚀")
-            manifest = load_manifest(project_path, cfg=cfg) or manifest
+            manifest = load_sprint_plan(project_path, cfg) or manifest
             # Fall through to task execution below
         else:
             log(project_name, "Set 'approved: true' in manifest to begin execution", "👉")
@@ -514,7 +514,7 @@ async def process_project(
         new_attempts = task.attempts + 1
 
         if result.success:
-            updated_manifest = load_manifest(project_path, cfg=cfg)
+            updated_manifest = load_sprint_plan(project_path, cfg)
             if updated_manifest:
                 updated_task = next((t for t in updated_manifest.tasks if t.id == task.id), None)
                 if updated_task and updated_task.status == "done":
@@ -534,7 +534,7 @@ async def process_project(
                         error="Worker completed without marking task done",
                         attempts=new_attempts,
                     )
-                    manifest = load_manifest(project_path, cfg=cfg) or manifest
+                    manifest = load_sprint_plan(project_path, cfg) or manifest
             else:
                 log(project_name, "Could not reload manifest after task", "❌")
                 break
@@ -566,7 +566,7 @@ async def process_project(
                 )
                 log(project_name, f"Will retry ({new_attempts}/{manifest.max_task_attempts})", "🔄")
 
-            manifest = load_manifest(project_path, cfg=cfg) or manifest
+            manifest = load_sprint_plan(project_path, cfg) or manifest
 
 
 async def sprint_project(
@@ -582,10 +582,10 @@ async def sprint_project(
 
     project_name = project_path.name
 
-    # Step 3: Load strategy manifest
-    manifest = load_manifest(project_path, cfg=cfg)
+    # Step 3: Load strategy manifest (.dev/strategy.md)
+    manifest = load_strategy_manifest(project_path, cfg)
     if manifest is None or not manifest.goal:
-        log(project_name, "No strategy manifest found or goal is empty — cannot sprint", "❌")
+        log(project_name, "No .dev/strategy.md found — run 'autopilot strategize' first", "❌")
         return
 
     # Step 4: Load runbook, sprint log, archetypes index

@@ -16,8 +16,7 @@ if TYPE_CHECKING:
     from .config import AutopilotConfig
 
 MANIFEST_DIR = ".dev"
-MANIFEST_FILENAME = "autopilot.md"
-MANIFEST_PATH = f"{MANIFEST_DIR}/{MANIFEST_FILENAME}"
+SPRINT_PATH = ".dev/sprint.md"
 
 
 def slugify(text: str) -> str:
@@ -117,39 +116,6 @@ def parse_tasks(content: str) -> list[Task]:
         )
 
     return tasks
-
-
-def load_manifest(path: Path, cfg: "AutopilotConfig | None" = None) -> Manifest | None:
-    """Load and parse a project manifest file."""
-    if cfg is not None:
-        manifest_path = cfg.manifest_path(path)
-    else:
-        manifest_path = path / MANIFEST_DIR / MANIFEST_FILENAME
-    if not manifest_path.exists():
-        return None
-
-    content = manifest_path.read_text(encoding="utf-8")
-    fm, body = parse_frontmatter(content)
-    tasks = parse_tasks(content)
-
-    return Manifest(
-        path=manifest_path,
-        name=fm.get("name", path.name),
-        approved=fm.get("approved", False),
-        status=fm.get("status", "pending"),
-        worktree=fm.get("worktree", False),
-        branch_prefix=fm.get("branch_prefix", "autopilot"),
-        max_budget_usd=fm.get("max_budget_usd", 5.0),
-        max_task_attempts=fm.get("max_task_attempts", 3),
-        tasks=tasks,
-        body=body,
-        raw=content,
-        archetype=fm.get("archetype"),
-        goal=fm.get("goal", "launch"),
-        validate=fm.get("validate") or [],
-        max_sprint_budget_usd=fm.get("max_sprint_budget_usd", 5.0),
-        strategy=body,
-    )
 
 
 def update_task_status(
@@ -295,7 +261,7 @@ def reset_stuck_project(project_path: Path) -> bool:
 
     Returns True if the project was reset, False if it wasn't stuck.
     """
-    manifest = load_manifest(project_path)
+    manifest = load_sprint_plan(project_path)
     if manifest is None or manifest.status != "stuck":
         return False
 
@@ -312,9 +278,9 @@ def discover_projects(scan_dir: Path, cfg: "AutopilotConfig | None" = None) -> l
     projects = []
     for child in sorted(scan_dir.iterdir()):
         if cfg is not None:
-            manifest_exists = cfg.manifest_path(child).exists()
+            manifest_exists = cfg.sprint_path(child).exists()
         else:
-            manifest_exists = (child / MANIFEST_DIR / MANIFEST_FILENAME).exists()
+            manifest_exists = (child / MANIFEST_DIR / "sprint.md").exists()
         if child.is_dir() and manifest_exists:
             projects.append(child)
     return projects
@@ -479,21 +445,58 @@ def append_sprint_log(
         f.write(entry)
 
 
-def load_sprint_plan(project_path: Path, cfg: "AutopilotConfig") -> Manifest | None:
+def load_sprint_plan(
+    project_path: Path, cfg: "AutopilotConfig | None" = None
+) -> Manifest | None:
     """Read the sprint plan file and return a Manifest, or None if it doesn't exist."""
-    sprint_path = cfg.sprint_path(project_path)
-    if not sprint_path.exists():
+    if cfg is not None:
+        sprint_file = cfg.sprint_path(project_path)
+    else:
+        sprint_file = project_path / MANIFEST_DIR / "sprint.md"
+    if not sprint_file.exists():
         return None
-    content = sprint_path.read_text(encoding="utf-8")
+    content = sprint_file.read_text(encoding="utf-8")
     fm, body = parse_frontmatter(content)
     tasks = parse_tasks(content)
     return Manifest(
-        path=sprint_path,
+        path=sprint_file,
         name=fm.get("name", project_path.name),
         approved=fm.get("approved", False),
         status=fm.get("status", "pending"),
+        worktree=fm.get("worktree", False),
+        branch_prefix=fm.get("branch_prefix", "autopilot"),
+        max_budget_usd=fm.get("max_budget_usd", 5.0),
+        max_task_attempts=fm.get("max_task_attempts", 3),
         tasks=tasks,
         body=body,
+        raw=content,
+        archetype=fm.get("archetype"),
+        goal=fm.get("goal", "launch"),
+        validate=fm.get("validate") or [],
+        max_sprint_budget_usd=fm.get("max_sprint_budget_usd", 5.0),
+        strategy=body,
+    )
+
+
+def load_strategy_manifest(project_path: Path, cfg: "AutopilotConfig") -> "Manifest | None":
+    """Read the strategy manifest (.dev/strategy.md) and return a Manifest, or None."""
+    strategy_path = cfg.strategy_path(project_path)
+    if not strategy_path.exists():
+        return None
+    content = strategy_path.read_text(encoding="utf-8")
+    fm, body = parse_frontmatter(content)
+    tasks = parse_tasks(content)
+    return Manifest(
+        path=strategy_path,
+        name=fm.get("name", project_path.name),
+        approved=fm.get("approved", False),
+        status=fm.get("status", "planning"),
+        goal=fm.get("goal", ""),
+        archetype=fm.get("archetype", ""),
+        validate=fm.get("validate", []),
+        tasks=tasks,
+        body=body,
+        strategy=body,
         raw=content,
     )
 

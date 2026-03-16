@@ -11,13 +11,13 @@ from pathlib import Path
 from .config import load_config
 from .log import log, log_header
 from .manifest import (
-    MANIFEST_PATH,
+    SPRINT_PATH,
     detect_git_user,
     discover_all_projects,
     discover_projects,
     get_repo_owner,
     get_task_summary,
-    load_manifest,
+    load_sprint_plan,
     reset_stuck_project,
 )
 from .orchestrator import (
@@ -235,7 +235,7 @@ async def async_main() -> None:
         else:
             project_paths = discover_projects(scan_root, cfg=global_cfg)
             if not project_paths:
-                print(f"  No projects with {MANIFEST_PATH} found under {args.scan}")
+                print(f"  No projects with {SPRINT_PATH} found under {args.scan}")
                 sys.exit(0)
     elif args.projects:
         project_paths = [Path(p).expanduser().resolve() for p in args.projects]
@@ -243,10 +243,10 @@ async def async_main() -> None:
         cwd = Path.cwd()
         if args.subcommand in {"research", "plan", "roadmap", "strategize"}:
             project_paths = [cwd]
-        elif global_cfg.manifest_path(cwd).exists():
+        elif global_cfg.sprint_path(cwd).exists():
             project_paths = [cwd]
         else:
-            print(f"  No {MANIFEST_PATH} in current directory. Provide paths or use --scan.")
+            print(f"  No {SPRINT_PATH} in current directory. Provide paths or use --scan.")
             sys.exit(1)
 
     # Filter non-owned repos in broad scan mode (unless --all)
@@ -288,7 +288,7 @@ async def async_main() -> None:
                 tag = "has summary" if has_summary else "no summary"
                 print(f"  {path.name}: would {dry_label} ({tag})")
             else:
-                manifest = load_manifest(path)
+                manifest = load_sprint_plan(path, load_config(path))
                 if manifest:
                     status = "approved" if manifest.approved else "needs review"
                     print(

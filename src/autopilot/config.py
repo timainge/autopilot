@@ -13,7 +13,7 @@ _DEFAULTS: dict = {
     "scan_root": None,
     "git_user": None,
     "dev_dir": ".dev",
-    "manifest_filename": "autopilot.md",
+    "strategy_filename": "strategy.md",
     "summary_filename": "project-summary.md",
     "roadmap_filename": "roadmap.md",
     "portfolio_filename": "portfolio.md",
@@ -31,7 +31,7 @@ class AutopilotConfig:
     scan_root: str | None = None
     git_user: str | None = None
     dev_dir: str = ".dev"
-    manifest_filename: str = "autopilot.md"
+    strategy_filename: str = "strategy.md"
     summary_filename: str = "project-summary.md"
     roadmap_filename: str = "roadmap.md"
     portfolio_filename: str = "portfolio.md"
@@ -42,8 +42,8 @@ class AutopilotConfig:
     sprint_log_filename: str = "sprint-log.md"
     max_sprints: int = 10
 
-    def manifest_path(self, project: Path) -> Path:
-        return project / self.dev_dir / self.manifest_filename
+    def strategy_path(self, project: Path) -> Path:
+        return project / self.dev_dir / self.strategy_filename
 
     def summary_path(self, project: Path) -> Path:
         return project / self.dev_dir / self.summary_filename

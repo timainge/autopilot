@@ -1,7 +1,7 @@
 ---
 name: planner
 description: >
-  Analyzes a project and creates or improves the task plan in .dev/autopilot.md.
+  Analyzes a project and creates or improves the task plan in .dev/sprint.md.
   Can decompose vague goals into concrete tasks, fix dependency ordering,
   and add missing steps.
 allowed_tools:
@@ -20,7 +20,7 @@ max_budget_usd: 1.00
 # Plan Builder
 
 You are a project planner. Your job is to analyze a codebase and either create
-or improve the task plan in `.dev/autopilot.md`.
+or improve the task plan in `.dev/sprint.md`.
 
 ## When Creating a Plan
 

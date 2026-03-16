@@ -4,13 +4,13 @@ import re
 import textwrap
 from pathlib import Path
 
-from .manifest import MANIFEST_PATH
+from .manifest import SPRINT_PATH
 from .models import Manifest, Task
 
 
 def build_judge_prompt(manifest: Manifest, sprint_plan_path: str | None = None) -> str:
     """Build the prompt for the judge agent."""
-    plan_path = sprint_plan_path if sprint_plan_path is not None else MANIFEST_PATH
+    plan_path = sprint_plan_path if sprint_plan_path is not None else SPRINT_PATH
     return textwrap.dedent(f"""\
         Evaluate the project manifest at `{plan_path}` in this directory.
 
@@ -65,7 +65,7 @@ def build_worker_prompt(
         manifest_instruction = (
             f"Read the sprint plan at `{sprint_plan_path}` to understand the current sprint's"
             f" tasks.\n"
-            f"        Also read `{MANIFEST_PATH}` for overall strategy context."
+            f"        Also read `.dev/strategy.md` for overall strategy context."
         )
         mark_done_instruction = (
             f"5. Mark this task as complete in `{sprint_plan_path}` by changing\n"
@@ -73,11 +73,11 @@ def build_worker_prompt(
         )
     else:
         manifest_instruction = (
-            f"Read the project manifest at `{MANIFEST_PATH}` to understand the full\n"
+            f"Read the sprint plan at `{SPRINT_PATH}` to understand the full\n"
             f"        project context, plan, and current progress."
         )
         mark_done_instruction = (
-            f"5. Mark this task as complete in `{MANIFEST_PATH}` by changing\n"
+            f"5. Mark this task as complete in `{SPRINT_PATH}` by changing\n"
             f"           its checkbox from `### [ ]` to `### [x]`"
         )
 
@@ -203,7 +203,7 @@ def build_planner_prompt(
 
     lines = [
         f"Analyze the project at `{project_path}` and create or improve the",
-        f"task plan in `{MANIFEST_PATH}`.",
+        "task plan in `.dev/sprint.md`.",
         "",
         "If no manifest exists yet, create one with appropriate frontmatter",
         "and a task list. If one exists, improve it.",
@@ -250,13 +250,13 @@ def build_critic_prompt(
             "The plan was written by a planner agent. Your job is to find what it missed",
             "and fix it directly in the sprint manifest. Follow the process in your system prompt.",
             "",
-            "Note: the overall strategy context lives in `.dev/autopilot.md` — read it to",
+            "Note: the overall strategy context lives in `.dev/strategy.md` — read it to",
             "understand the goals this sprint should be advancing.",
         ]
         return "\n".join(lines)
 
     lines = [
-        f"Review the task plan at `.dev/autopilot.md` for the project at `{project_path}`.",
+        f"Review the task plan at `.dev/sprint.md` for the project at `{project_path}`.",
         "",
         "The plan was written by a planner agent. Your job is to find what it missed",
         "and fix it directly in the manifest. Follow the process in your system prompt.",
@@ -316,14 +316,14 @@ def build_strategist_prompt(
         )
         prompt = textwrap.dedent(f"""\
             Analyze the project at `{project_path}` and create a strategy manifest
-            at `.dev/autopilot.md`.
+            at `.dev/strategy.md`.
 
             Explore the codebase: read CLAUDE.md, README, pyproject.toml/package.json,
             and `.dev/project-summary.md` / `.dev/roadmap.md` if present.
 
             {archetype_hint}
 
-            Write `.dev/autopilot.md` in the strategy manifest format described in your
+            Write `.dev/strategy.md` in the strategy manifest format described in your
             system prompt. Create the `.dev/` directory if it doesn't exist.
         """)
 
@@ -356,7 +356,7 @@ def build_strategist_prompt(
 
     # evaluate mode
     return textwrap.dedent(f"""\
-        Read the strategy manifest at `.dev/autopilot.md` for the project at `{project_path}`.
+        Read the strategy manifest at `.dev/strategy.md` for the project at `{project_path}`.
 
         Below is the sprint log summarising work completed so far:
 
