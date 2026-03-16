@@ -65,7 +65,7 @@ def build_worker_prompt(
         manifest_instruction = (
             f"Read the sprint plan at `{sprint_plan_path}` to understand the current sprint's"
             f" tasks.\n"
-            f"        Also read `.dev/strategy.md` for overall strategy context."
+            f"        Also read `.dev/roadmap.md` for overall goal context."
         )
         mark_done_instruction = (
             f"5. Mark this task as complete in `{sprint_plan_path}` by changing\n"
@@ -157,7 +157,7 @@ def build_portfolio_prompt(scan_dir: Path, project_paths: list[Path]) -> str:
 def build_planner_prompt(
     project_path: Path,
     context_file: Path | None = None,
-    strategy: str = "",
+    roadmap: str = "",
     runbook: str = "",
     sprint_log: str = "",
     sprint_mode: bool = False,
@@ -175,12 +175,12 @@ def build_planner_prompt(
             "(tests pass, no broken imports).",
         ]
 
-        if strategy:
+        if roadmap:
             lines += [
                 "",
-                "--- STRATEGY START ---",
-                strategy,
-                "--- STRATEGY END ---",
+                "--- ROADMAP START ---",
+                roadmap,
+                "--- ROADMAP END ---",
             ]
 
         if runbook:
@@ -250,7 +250,7 @@ def build_critic_prompt(
             "The plan was written by a planner agent. Your job is to find what it missed",
             "and fix it directly in the sprint manifest. Follow the process in your system prompt.",
             "",
-            "Note: the overall strategy context lives in `.dev/strategy.md` — read it to",
+            "Note: the overall goal context lives in `.dev/roadmap.md` — read it to",
             "understand the goals this sprint should be advancing.",
         ]
         return "\n".join(lines)
@@ -297,83 +297,6 @@ def build_roadmap_prompt(project_path: Path) -> str:
         {summary_hint}
 
         Write the roadmap to `.dev/roadmap.md` following the format in your system prompt.
-    """)
-
-
-def build_strategist_prompt(
-    project_path: Path,
-    mode: str,  # "create" | "evaluate"
-    context_file: Path | None = None,
-    archetypes_index_path: Path | None = None,
-    sprint_log: str = "",
-) -> str:
-    """Build the prompt for the strategist agent (create or evaluate mode)."""
-    if mode == "create":
-        archetype_hint = (
-            f"Load the archetypes index at `{archetypes_index_path}` to identify the archetype."
-            if archetypes_index_path
-            else "No archetypes index is available — infer the archetype from codebase markers."
-        )
-        prompt = textwrap.dedent(f"""\
-            Analyze the project at `{project_path}` and create a strategy manifest
-            at `.dev/strategy.md`.
-
-            Explore the codebase: read CLAUDE.md, README, pyproject.toml/package.json,
-            and `.dev/project-summary.md` / `.dev/roadmap.md` if present.
-
-            {archetype_hint}
-
-            Write `.dev/strategy.md` in the strategy manifest format described in your
-            system prompt. Create the `.dev/` directory if it doesn't exist.
-        """)
-
-        if context_file:
-            try:
-                content = context_file.read_text(encoding="utf-8")
-            except OSError:
-                content = f"(could not read {context_file})"
-
-            prompt += "\n".join([
-                "",
-                "Use the following file as the primary goal/context for the strategy.",
-                f"Source: `{context_file}`",
-                "",
-                "--- CONTEXT START ---",
-                content,
-                "--- CONTEXT END ---",
-                "",
-                "After reading the above, complete your codebase exploration"
-                " before writing the strategy.",
-            ])
-        else:
-            prompt += "\n".join([
-                "",
-                "No context file was provided. Infer the goal from the codebase state and any",
-                "existing roadmap or research summary.",
-            ])
-
-        return prompt
-
-    # evaluate mode
-    return textwrap.dedent(f"""\
-        Read the strategy manifest at `.dev/strategy.md` for the project at `{project_path}`.
-
-        Below is the sprint log summarising work completed so far:
-
-        --- SPRINT LOG START ---
-        {sprint_log}
-        --- SPRINT LOG END ---
-
-        Assess whether the strategy goals and quality bar defined in the manifest are satisfied
-        based on the sprint log and current project state.
-
-        Output EXACTLY one of:
-
-        STRATEGY_SATISFIED: YES
-        (or)
-        STRATEGY_SATISFIED: NO
-
-        Followed by a concise assessment. If not satisfied, describe what remains.
     """)
 
 
@@ -435,46 +358,40 @@ def build_deep_researcher_prompt(
     """)
 
 
-def build_evaluator_prompt(
-    project_path: Path,
-    strategy_manifest: str,
-    sprint_log: str,
-) -> str:
-    """Build the prompt for the strategist agent in evaluate mode."""
+def build_evaluate_prompt(project_path: Path, sprint_log: str) -> str:
+    """Build the prompt for the roadmap agent in evaluate mode."""
     return textwrap.dedent(f"""\
-        Evaluate whether the strategy goals have been satisfied for the project at `{project_path}`.
+        Read the roadmap at `.dev/roadmap.md` for the project at `{project_path}`.
 
-        Strategy manifest:
-        --- STRATEGY START ---
-        {strategy_manifest}
-        --- STRATEGY END ---
+        Below is the sprint log summarising work completed so far:
 
-        Sprint log:
         --- SPRINT LOG START ---
         {sprint_log}
         --- SPRINT LOG END ---
 
-        Inspect the current project state as needed. Output EXACTLY:
+        Assess whether the goal and quality bar defined in the roadmap are satisfied
+        based on the sprint log and current project state.
 
-        STRATEGY_SATISFIED: YES
+        Output EXACTLY one of:
+
+        GOAL_MET: YES
         (or)
-        STRATEGY_SATISFIED: NO
+        GOAL_MET: NO
 
-        Followed by a brief assessment (2-5 sentences).
+        Followed by a concise assessment (2-5 sentences). If not satisfied, describe what remains.
     """)
 
 
-def parse_strategy_result(output: str) -> tuple[bool, str]:
-    """Parse the strategist agent's evaluation verdict and assessment."""
-    if "STRATEGY_SATISFIED: YES" in output:
-        satisfied = True
-    elif "STRATEGY_SATISFIED: NO" in output:
-        satisfied = False
+def parse_goal_result(output: str) -> tuple[bool, str]:
+    """Parse the roadmap agent's evaluate verdict."""
+    if "GOAL_MET: YES" in output:
+        met = True
+    elif "GOAL_MET: NO" in output:
+        met = False
     else:
         return False, output
-
-    assessment = re.sub(r"STRATEGY_SATISFIED:\s*(YES|NO)\s*", "", output, count=1).strip()
-    return satisfied, assessment
+    assessment = re.sub(r"GOAL_MET:\s*(YES|NO)\s*", "", output, count=1).strip()
+    return met, assessment
 
 
 def parse_judge_result(output: str) -> tuple[bool, str]:

@@ -10,7 +10,7 @@ Autopilot is the outer loop for Claude Code. You describe what needs building; a
 It has two modes:
 
 - **Task execution** — write a task manifest, autopilot runs it. Good for well-defined work.
-- **Strategy-driven sprints** — describe a goal, autopilot figures out the tasks, runs sprints, and checks whether the goal has been met. Good for open-ended projects.
+- **Roadmap-driven sprints** — describe a goal, autopilot figures out the tasks, runs sprints, and checks whether the goal has been met. Good for open-ended projects.
 
 ---
 
@@ -78,32 +78,21 @@ Once approved, autopilot loops through tasks sequentially. Each task spawns a fr
 
 ---
 
-## Strategy-Driven Sprints
+## Roadmap-Driven Sprints
 
 For open-ended goals — "get this library to a publishable state", "make this API production-ready" — the sprint workflow lets you define what done looks like and let autopilot figure out the steps.
 
-### Strategize
+### Roadmap
 
 ```bash
-autopilot strategize .
-
-# Deep research first (web search + extended analysis)
-autopilot strategize --deep .
-
-# Seed with a spec or design doc
-autopilot strategize --context spec.md .
+autopilot roadmap .
 ```
 
-The strategist writes `.dev/strategy.md` with:
-- A **goal type**: `launch`, `publish`, or `complete`
-- A **quality bar**: specific, measurable criteria (prefer commands over prose)
-- `validate` commands: shell commands that must pass for the goal to be met
+The roadmap agent writes `.dev/roadmap.md` with:
+- YAML frontmatter: **goal type** (`launch`, `publish`, or `complete`), **archetype**, and `validate` commands
+- A shipping roadmap body: target, phases, steps, success criteria
 
-This file is both the sprint loop's input and its termination condition. Before sprints start, review and approve it by setting `approved: true`.
-
-The `--deep` flag runs the deep-researcher agent first — web search, extended codebase analysis — producing richer context for the strategist. Worth the extra cost for unfamiliar codebases.
-
-The roadmap (`autopilot roadmap .`) is a good optional step before strategizing — the strategist reads `.dev/roadmap.md` if it exists and uses it to ground the strategy in a realistic shipping target.
+This file is both the sprint loop's input and its termination condition. The `validate` commands are shell commands that must pass for the goal to be met.
 
 ### Sprint
 
@@ -114,18 +103,18 @@ autopilot sprint .
 # Skip manual review between sprints
 autopilot sprint --auto-approve .
 
-# Loop until all validate commands pass
+# Loop until the roadmap goal is met
 autopilot sprint --loop --auto-approve .
 ```
 
 Each sprint:
-1. Reads the strategy manifest
+1. Reads the roadmap (`.dev/roadmap.md`)
 2. Plans a focused task manifest for the next increment (planner + optional critic)
 3. Runs the worker loop
-4. Runs the `validate` commands and asks the strategist to evaluate progress
-5. Reports whether the strategy is satisfied
+4. Runs the `validate` commands and asks the roadmap agent to evaluate progress
+5. Reports whether the goal is met
 
-With `--loop`, sprints repeat until `strategy_satisfied` or `max_sprints` is reached.
+With `--loop`, sprints repeat until the goal is met or `max_sprints` is reached.
 
 ---
 
@@ -138,7 +127,6 @@ autopilot research --scan ~/Projects
 autopilot roadmap --scan ~/Projects
 autopilot plan --scan ~/Projects
 autopilot run --auto-approve --scan ~/Projects
-autopilot strategize --scan ~/Projects
 autopilot sprint --loop --auto-approve --scan ~/Projects
 ```
 
@@ -167,12 +155,12 @@ Use `--all` to include forks and clones.
 
 ## Manifest Format
 
-Two manifest files, two distinct purposes:
+Two key manifest files:
 
 - **`.dev/sprint.md`** — task manifest, written by `plan`, read by `run`. Contains tasks with checkboxes. In sprint mode, overwritten each iteration by the sprint planner.
-- **`.dev/strategy.md`** — strategy manifest, written by `strategize`, read by `sprint`. Contains a goal, quality bar, and `validate` commands.
+- **`.dev/roadmap.md`** — roadmap manifest, written by `roadmap`, read by `sprint`. Contains a goal, archetype, `validate` commands in YAML frontmatter, plus the shipping roadmap body.
 
-Both use the same YAML frontmatter + markdown format. Add `.dev/` to `.gitignore` — it contains orchestration state, not source code.
+Both use YAML frontmatter + markdown format. Add `.dev/` to `.gitignore` — it contains orchestration state, not source code.
 
 ### Frontmatter fields
 
@@ -185,9 +173,9 @@ Both use the same YAML frontmatter + markdown format. Add `.dev/` to `.gitignore
 | `branch_prefix` | string | autopilot | Branch prefix when `worktree: true` |
 | `max_budget_usd` | float | 5.0 | Budget cap per project run |
 | `max_task_attempts` | int | 3 | Max retries per task before marking failed |
-| `goal` | string | — | Strategy goal type: launch / publish / complete |
-| `archetype` | string | — | Project archetype (e.g. `python-cli`) for bundled runbooks |
-| `validate` | list | — | Shell commands that must pass for strategy completion |
+| `goal` | string | — | Goal type: launch / publish / complete (roadmap frontmatter) |
+| `archetype` | string | — | Project archetype (e.g. `python-cli`) for bundled runbooks (roadmap frontmatter) |
+| `validate` | list | — | Shell commands that must pass for goal completion (roadmap frontmatter) |
 
 ### Task format
 
@@ -227,9 +215,8 @@ Agent configs live in `src/autopilot/agents/*.md` — YAML frontmatter + system 
 | `planner` | `plan` | Creates `.dev/sprint.md` with structured tasks |
 | `critic` | `plan --review` | Reviews plan adversarially, edits manifest directly |
 | `researcher` | `research` | Analyzes codebase → `.dev/project-summary.md` |
-| `deep-researcher` | `strategize --deep` | Extended analysis with web search |
-| `roadmap` | `roadmap` | Shipping target + concrete phases → `.dev/roadmap.md` |
-| `strategist` | `strategize` / `sprint` | Writes `.dev/strategy.md` (create mode); evaluates sprint completion against it (evaluate mode) |
+| `deep-researcher` | `research --deep` | Extended analysis with web search |
+| `roadmap` | `roadmap` / `sprint` | Shipping target + goal + validate → `.dev/roadmap.md` (create mode); evaluates sprint completion (evaluate mode) |
 | `portfolio` | `portfolio` | Cross-project index → `<scan_dir>/.dev/portfolio.md` |
 
 ### Custom roles
@@ -265,5 +252,5 @@ The judge evaluates readiness, but a human must explicitly set `approved: true` 
 **Why markdown manifests, not YAML/JSON?**
 The manifest doubles as project documentation. YAML frontmatter gives structured config; the markdown body gives rich context that both humans and agents can read naturally.
 
-**What's the difference between roadmap and strategize?**
-`roadmap` is a discursive exploration: what's the right shipping target, how long will it take, what phases are involved. It's human-readable context that grounds the planner. `strategize` is a precise termination condition: a tight goal statement, measurable quality bar, and `validate` commands that the sprint loop uses to decide when to stop. The strategist reads the roadmap if it exists — run roadmap first for the best results.
+**Why does the roadmap agent have two modes?**
+In create mode, the roadmap agent produces `.dev/roadmap.md` — a shipping target, phases, and success criteria with `goal:` and `validate:` frontmatter. In evaluate mode (used by `sprint`), it reads that same roadmap plus the sprint log and assesses whether the goal has been met. One agent, one artifact, two perspectives.

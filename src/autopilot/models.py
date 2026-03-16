@@ -31,8 +31,8 @@ class Manifest:
     raw: str = ""
     # v2 additions:
     archetype: str | None = None
-    goal: str = "launch"          # "launch" | "publish" | "complete"
-    strategy: str = ""            # prose body of strategy manifest
+    goal: str = "launch"  # "launch" | "publish" | "complete"
+    strategy: str = ""  # prose body of strategy manifest
     max_sprint_budget_usd: float = 5.0
     validate: list[str] = field(default_factory=list)
 
@@ -64,6 +64,6 @@ class SprintResult:
     tasks_completed: int
     tasks_failed: int
     validation_passed: bool
-    evaluation: str          # strategist's free-text assessment
+    evaluation: str  # strategist's free-text assessment
     strategy_satisfied: bool
     cost_usd: float = 0.0

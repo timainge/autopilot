@@ -13,7 +13,7 @@ Single Python package at `src/autopilot/`. Key modules:
 | Module | Responsibility |
 |--------|---------------|
 | `cli.py` | Argparse CLI, project discovery, fork-filtering, async entry point |
-| `orchestrator.py` | All agent pipelines: judge/worker/planner/researcher/portfolio/roadmap/strategist/sprint |
+| `orchestrator.py` | All agent pipelines: judge/worker/planner/researcher/portfolio/roadmap/sprint |
 | `manifest.py` | Parse/load/write manifests, task dependency resolution, agent config loading, runbook I/O, sprint log I/O |
 | `prompts.py` | Prompt builders for all agent roles; judge verdict parsing |
 | `agent.py` | Thin wrapper around `claude_agent_sdk.query()` — streams messages, tracks cost, names sessions |
@@ -21,7 +21,7 @@ Single Python package at `src/autopilot/`. Key modules:
 | `config.py` | `AutopilotConfig` dataclass with v2 fields; `load_config()` from TOML |
 | `log.py` | Timestamped status logging |
 
-**Agent role configs** live in `src/autopilot/agents/*.md` — markdown files with YAML frontmatter defining system prompts, allowed tools, budget, and permission mode for each role: `judge`, `worker`, `planner`, `critic`, `researcher`, `portfolio`, `roadmap`, `strategist`, `deep-researcher`.
+**Agent role configs** live in `src/autopilot/agents/*.md` — markdown files with YAML frontmatter defining system prompts, allowed tools, budget, and permission mode for each role: `judge`, `worker`, `planner`, `critic`, `researcher`, `portfolio`, `roadmap`, `deep-researcher`.
 
 **Bundled runbooks** live in `src/autopilot/runbooks/*.md` — markdown reference docs loaded at runtime via `load_runbook(archetype, cfg)`. The `python-cli` runbook ships with the package. Custom runbooks can be added to a project-local `runbooks/` directory (configured via `AutopilotConfig.runbooks_dir`).
 
@@ -35,13 +35,11 @@ Single Python package at `src/autopilot/`. Key modules:
 
 **`research`**: Runs researcher agent → writes `.dev/project-summary.md`. Incremental: re-running compares stored commit hash against current state, does full or partial re-analysis as needed.
 
-**`roadmap`**: Runs roadmap agent → writes `.dev/roadmap.md`. Uses research summary if available.
+**`roadmap`**: Runs roadmap agent → writes `.dev/roadmap.md` with `goal:`, `archetype:`, and `validate:` frontmatter plus shipping steps. Uses research summary if available. The roadmap is the authoritative goal+validate artifact used by `sprint`.
 
 **`portfolio`**: Runs portfolio agent across all discovered projects → writes `<scan_dir>/.dev/portfolio.md`. Requires `--scan` or explicit paths.
 
-**`strategize`**: Runs strategist agent → writes `.dev/strategy.md` with goals and `validate` steps. Pass `--deep` to run the deep-researcher agent first for richer context. Pass `--context <file>` to seed with a spec.
-
-**`sprint`**: Reads `.dev/strategy.md`, plans a task manifest for the next increment (planner + optional critic), runs the worker loop, then checks validation criteria via `run_validation_hooks()`. Pass `--loop` to iterate sprints until `strategy_satisfied=True` or `max_sprints` is reached. Pass `--auto-approve` to skip the human review gate between sprints.
+**`sprint`**: Reads `.dev/roadmap.md`, plans a task manifest for the next increment (planner + optional critic), runs the worker loop, then checks validation criteria via `run_validation_hooks()`. Uses the roadmap agent in evaluate mode to assess goal completion. Pass `--loop` to iterate sprints until the goal is met or `max_sprints` is reached. Pass `--auto-approve` to skip the human review gate between sprints.
 
 ## Key Patterns
 
@@ -55,10 +53,9 @@ Single Python package at `src/autopilot/`. Key modules:
 
 All autopilot working files within a project live under `.dev/` (which should be in `.gitignore`):
 - `.dev/sprint.md` — task manifest (`plan` output); used by `run` for judge+worker loop; in sprint mode, overwritten each sprint by the planner
-- `.dev/strategy.md` — strategy manifest (`strategize` output); used by `sprint` as the goal + validate definition
+- `.dev/roadmap.md` — roadmap agent output; contains `goal:`, `archetype:`, and `validate:` frontmatter; used by `sprint` as the goal + validate definition
 - `.dev/sprint-log.md` — sprint history, append-only, feeds planner context each sprint
 - `.dev/project-summary.md` — researcher agent output
-- `.dev/roadmap.md` — roadmap agent output
 - `<scan_dir>/.dev/portfolio.md` — portfolio agent output
 
 ## Development Commands
@@ -68,11 +65,9 @@ uv pip install -e .                          # Install (editable)
 autopilot run .                              # Run on current directory
 autopilot plan .                             # Generate/improve manifest (lazy research first)
 autopilot research .                         # Analyse project
-autopilot roadmap .                          # Build shipping roadmap
-autopilot strategize .                       # Write strategy manifest
-autopilot strategize --deep .               # Deep research then strategize
-autopilot sprint .                           # Run one sprint against strategy
-autopilot sprint --loop --auto-approve .    # Run sprints until strategy satisfied
+autopilot roadmap .                          # Build shipping roadmap (goal + validate)
+autopilot sprint .                           # Run one sprint against roadmap
+autopilot sprint --loop --auto-approve .    # Run sprints until goal is met
 autopilot run --scan ~/Projects             # Auto-discover and process all projects
 uv run ruff check src/                      # Lint
 uv run ruff format --check src/             # Format check

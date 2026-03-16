@@ -81,10 +81,7 @@ def parse_tasks(content: str) -> list[Task]:
 
         depends_str = meta.get("depends", "")
         raw_deps = [d.strip() for d in depends_str.split(",") if d.strip()] if depends_str else []
-        depends = [
-            d if re.match(r"^[a-z0-9][a-z0-9-]*$", d) else slugify(d)
-            for d in raw_deps
-        ]
+        depends = [d if re.match(r"^[a-z0-9][a-z0-9-]*$", d) else slugify(d) for d in raw_deps]
         attempts = int(meta.get("attempts", "0"))
 
         status = "done" if checkbox == "x" else "pending"
@@ -445,9 +442,7 @@ def append_sprint_log(
         f.write(entry)
 
 
-def load_sprint_plan(
-    project_path: Path, cfg: "AutopilotConfig | None" = None
-) -> Manifest | None:
+def load_sprint_plan(project_path: Path, cfg: "AutopilotConfig | None" = None) -> Manifest | None:
     """Read the sprint plan file and return a Manifest, or None if it doesn't exist."""
     if cfg is not None:
         sprint_file = cfg.sprint_path(project_path)
@@ -478,27 +473,12 @@ def load_sprint_plan(
     )
 
 
-def load_strategy_manifest(project_path: Path, cfg: "AutopilotConfig") -> "Manifest | None":
-    """Read the strategy manifest (.dev/strategy.md) and return a Manifest, or None."""
-    strategy_path = cfg.strategy_path(project_path)
-    if not strategy_path.exists():
-        return None
-    content = strategy_path.read_text(encoding="utf-8")
-    fm, body = parse_frontmatter(content)
-    tasks = parse_tasks(content)
-    return Manifest(
-        path=strategy_path,
-        name=fm.get("name", project_path.name),
-        approved=fm.get("approved", False),
-        status=fm.get("status", "planning"),
-        goal=fm.get("goal", ""),
-        archetype=fm.get("archetype", ""),
-        validate=fm.get("validate", []),
-        tasks=tasks,
-        body=body,
-        strategy=body,
-        raw=content,
-    )
+def load_roadmap_text(project_path: Path, cfg: "AutopilotConfig") -> str:
+    """Read roadmap.md text, returning '' if it doesn't exist."""
+    path = cfg.roadmap_path(project_path)
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8")
 
 
 def save_sprint_plan(project_path: Path, content: str, cfg: "AutopilotConfig") -> None:

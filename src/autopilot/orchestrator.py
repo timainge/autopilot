@@ -12,10 +12,11 @@ from .manifest import (
     get_task_summary,
     load_agent_config,
     load_archetypes_index,
+    load_roadmap_text,
     load_runbook,
     load_sprint_log,
     load_sprint_plan,
-    load_strategy_manifest,
+    parse_frontmatter,
     update_manifest_frontmatter,
     update_task_status,
 )
@@ -23,16 +24,15 @@ from .models import SprintResult
 from .prompts import (
     build_critic_prompt,
     build_deep_researcher_prompt,
-    build_evaluator_prompt,
+    build_evaluate_prompt,
     build_judge_prompt,
     build_planner_prompt,
     build_portfolio_prompt,
     build_researcher_prompt,
     build_roadmap_prompt,
-    build_strategist_prompt,
     build_worker_prompt,
+    parse_goal_result,
     parse_judge_result,
-    parse_strategy_result,
 )
 
 
@@ -231,54 +231,36 @@ async def roadmap_project(
         log(project_name, f"Roadmap cost: ${result.cost_usd:.4f}", "💰")
 
 
-async def strategize_project(
+async def evaluate_project(
     project_path: Path,
     agents_dir: Path,
-    context_file: Path | None = None,
-    deep: bool = False,
     cfg: AutopilotConfig | None = None,
-) -> None:
-    """Run the strategist agent to create a strategy manifest."""
+) -> tuple[bool, str]:
+    """Run the roadmap agent in evaluate mode. Returns (goal_met, assessment)."""
     if cfg is None:
         cfg = load_config(project_path)
-
     project_name = project_path.name
-
-    if deep:
-        log(project_name, "Running deep research before strategizing...", "🔬")
-        await deep_research_project(project_path, agents_dir, cfg=cfg)
-
-    if not context_file and not cfg.summary_path(project_path).exists():
-        log(project_name, "No context provided — running research first", "🔬")
-        await research_project(project_path, agents_dir, cfg=cfg)
-
     try:
-        strategist_config = load_agent_config("strategist", agents_dir)
+        roadmap_config = load_agent_config("roadmap", agents_dir)
     except FileNotFoundError:
-        log(project_name, "No strategist agent config found — skipping", "❌")
-        return
+        log(project_name, "No roadmap agent config found — skipping evaluation", "❌")
+        return False, "Evaluation skipped (no roadmap agent config)"
 
-    archetypes_index_path = cfg.archetypes_index_path()
-
-    ctx = f" (with context from {context_file.name})" if context_file else ""
-    log(project_name, f"Running strategist...{ctx}", "🧠")
-
-    prompt = build_strategist_prompt(project_path, "create", context_file, archetypes_index_path)
+    sprint_log = load_sprint_log(project_path, cfg)
+    prompt = build_evaluate_prompt(project_path, sprint_log)
     result = await run_agent(
-        strategist_config,
+        roadmap_config,
         project_path,
         prompt,
         project_name=project_name,
-        role_name="strategist",
+        role_name="roadmap-evaluate",
     )
-
-    if result.success:
-        log(project_name, "Strategy manifest complete — see .dev/strategy.md", "✅")
-    else:
-        log(project_name, f"Strategist failed: {result.error}", "❌")
-
+    if not result.success:
+        log(project_name, f"Evaluation failed: {result.error}", "❌")
+        return False, result.error or "Evaluation failed"
     if result.cost_usd > 0:
-        log(project_name, f"Strategist cost: ${result.cost_usd:.4f}", "💰")
+        log(project_name, f"Evaluation cost: ${result.cost_usd:.4f}", "💰")
+    return parse_goal_result(result.output)
 
 
 async def deep_research_project(
@@ -346,9 +328,7 @@ async def run_validation_hooks(
             stderr=asyncio.subprocess.PIPE,
         )
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout
-            )
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except TimeoutError:
             proc.kill()
             await proc.wait()
@@ -576,33 +556,38 @@ async def sprint_project(
     auto_approve: bool = False,
     cfg: AutopilotConfig | None = None,
 ) -> None:
-    """Run one or more sprint cycles against the strategy manifest."""
+    """Run one or more sprint cycles against the roadmap."""
     if cfg is None:
         cfg = load_config(project_path)
 
     project_name = project_path.name
 
-    # Step 3: Load strategy manifest (.dev/strategy.md)
-    manifest = load_strategy_manifest(project_path, cfg)
-    if manifest is None or not manifest.goal:
-        log(project_name, "No .dev/strategy.md found — run 'autopilot strategize' first", "❌")
+    # Step 3: Load roadmap (replaces strategy manifest)
+    roadmap_text = load_roadmap_text(project_path, cfg)
+    if not roadmap_text:
+        log(project_name, "No .dev/roadmap.md found — run 'autopilot roadmap .' first", "❌")
         return
 
-    # Step 4: Load runbook, sprint log, archetypes index
-    runbook = load_runbook(manifest.archetype, cfg) if manifest.archetype else None
+    roadmap_fm, roadmap_body = parse_frontmatter(roadmap_text)
+    roadmap_goal = roadmap_fm.get("goal", "")
+    roadmap_archetype = roadmap_fm.get("archetype", "")
+
+    if not roadmap_goal:
+        log(project_name, "Roadmap has no goal — run 'autopilot roadmap .' to regenerate", "❌")
+        return
+
+    # Step 4: Load runbook based on archetype from roadmap
+    runbook = load_runbook(roadmap_archetype, cfg) if roadmap_archetype else None
     sprint_log = load_sprint_log(project_path, cfg)
     archetypes_index = load_archetypes_index(cfg)
 
-    # Step 5: Determine validation commands
-    if manifest.validate:
-        validation_commands = manifest.validate
-    else:
-        validation_commands = []
-        if archetypes_index and manifest.archetype:
-            for entry in archetypes_index:
-                if entry.get("name") == manifest.archetype:
-                    validation_commands = entry.get("validate", [])
-                    break
+    # Step 5: Determine validation commands from roadmap frontmatter
+    validation_commands: list[str] = roadmap_fm.get("validate") or []
+    if not validation_commands and archetypes_index and roadmap_archetype:
+        for entry in archetypes_index:
+            if entry.get("name") == roadmap_archetype:
+                validation_commands = entry.get("validate", [])
+                break
 
     # Step 6: Determine sprint number
     sprint_number = sprint_log.count("## Sprint") + 1
@@ -625,7 +610,7 @@ async def sprint_project(
         planner_prompt = build_planner_prompt(
             project_path,
             sprint_mode=True,
-            strategy=manifest.strategy,
+            roadmap=roadmap_body,
             runbook=runbook or "",
             sprint_log=sprint_log,
         )
@@ -738,9 +723,7 @@ async def sprint_project(
                 if result.success:
                     reloaded = load_sprint_plan(project_path, cfg)
                     if reloaded:
-                        updated_task = next(
-                            (t for t in reloaded.tasks if t.id == task.id), None
-                        )
+                        updated_task = next((t for t in reloaded.tasks if t.id == task.id), None)
                         if updated_task and updated_task.status == "done":
                             tasks_completed += 1
                             continue
@@ -789,9 +772,7 @@ async def sprint_project(
         while not validation_passed and remediation_retries < 2:
             remediation_retries += 1
             remediation_context = f"Validation failed:\n{validation_output}"
-            combined_sprint_log = (
-                f"{sprint_log}\n\nREMEDIATION CONTEXT:\n{remediation_context}"
-            )
+            combined_sprint_log = f"{sprint_log}\n\nREMEDIATION CONTEXT:\n{remediation_context}"
 
             log(
                 project_name,
@@ -807,7 +788,7 @@ async def sprint_project(
             remediation_prompt = build_planner_prompt(
                 project_path,
                 sprint_mode=True,
-                strategy=manifest.strategy,
+                roadmap=roadmap_body,
                 runbook=runbook or "",
                 sprint_log=combined_sprint_log,
             )
@@ -828,29 +809,8 @@ async def sprint_project(
         if not validation_passed:
             log(project_name, "Validation still failing after remediation attempts", "❌")
 
-        # Step 14: Run evaluator
-        strategy_manifest_text = manifest.strategy
-        sprint_log_current = load_sprint_log(project_path, cfg)
-        eval_prompt = build_evaluator_prompt(
-            project_path, strategy_manifest_text, sprint_log_current
-        )
-
-        strategy_satisfied = False
-        assessment = "Evaluation skipped (no strategist config)"
-
-        try:
-            strategist_config = load_agent_config("strategist", agents_dir)
-            eval_result = await run_agent(
-                strategist_config,
-                project_path,
-                eval_prompt,
-                project_name=project_name,
-                role_name="strategist",
-            )
-            total_cost += eval_result.cost_usd
-            strategy_satisfied, assessment = parse_strategy_result(eval_result.output)
-        except FileNotFoundError:
-            log(project_name, "No strategist agent config found — skipping evaluation", "❌")
+        # Step 14: Evaluate
+        goal_met, assessment = await evaluate_project(project_path, agents_dir, cfg=cfg)
 
         # Step 15: Build and append SprintResult
         sr = SprintResult(
@@ -860,7 +820,7 @@ async def sprint_project(
             tasks_failed=tasks_failed,
             validation_passed=validation_passed,
             evaluation=assessment,
-            strategy_satisfied=strategy_satisfied,
+            strategy_satisfied=goal_met,
             cost_usd=total_cost,
         )
         append_sprint_log(project_path, sr, cfg)
@@ -870,13 +830,13 @@ async def sprint_project(
             log(project_name, f"Sprint {sprint_number} cost: ${total_cost:.4f}", "💰")
 
         # Step 16: Log outcome
-        if strategy_satisfied:
-            log(project_name, f"Sprint {sprint_number}: Strategy satisfied ✓", "🎉")
+        if goal_met:
+            log(project_name, f"Sprint {sprint_number}: Goal met!", "🎉")
         else:
-            log(project_name, f"Sprint {sprint_number}: Strategy not yet satisfied", "🔄")
+            log(project_name, f"Sprint {sprint_number}: Goal not yet met", "🔄")
 
         # Step 17: Break if satisfied or not looping
-        if strategy_satisfied or not auto_loop:
+        if goal_met or not auto_loop:
             break
 
         # Step 18: Continue to next sprint
