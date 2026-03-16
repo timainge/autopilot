@@ -7,13 +7,13 @@ from .agent import run_agent
 from .config import AutopilotConfig, load_config
 from .log import log
 from .manifest import (
+    append_deferred_to_roadmap,
     append_sprint_log,
     get_next_task,
     get_task_summary,
     load_agent_config,
     load_archetypes_index,
     load_roadmap_text,
-    load_runbook,
     load_sprint_log,
     load_sprint_plan,
     parse_frontmatter,
@@ -653,193 +653,105 @@ async def build_project(
     await execute_sprint(project_path, agents_dir, auto_approve=auto_approve, cfg=cfg)
 
 
-async def sprint_project(
+async def ralph_project(
     project_path: Path,
     agents_dir: Path,
-    auto_loop: bool = False,
     auto_approve: bool = False,
     cfg: AutopilotConfig | None = None,
 ) -> None:
-    """Run one or more sprint cycles against the roadmap."""
+    """Outer loop: plan -> sprint -> evaluate until GOAL_MET or stuck."""
     if cfg is None:
         cfg = load_config(project_path)
 
     project_name = project_path.name
 
-    # Step 3: Load roadmap (replaces strategy manifest)
-    roadmap_text = load_roadmap_text(project_path, cfg)
-    if not roadmap_text:
+    # Require roadmap.md
+    if not cfg.roadmap_path(project_path).exists():
         log(project_name, "No .dev/roadmap.md found — run 'autopilot roadmap .' first", "❌")
         return
 
-    roadmap_fm, roadmap_body = parse_frontmatter(roadmap_text)
-    roadmap_goal = roadmap_fm.get("goal", "")
-    roadmap_archetype = roadmap_fm.get("archetype", "")
-
-    if not roadmap_goal:
-        log(project_name, "Roadmap has no goal — run 'autopilot roadmap .' to regenerate", "❌")
-        return
-
-    # Step 4: Load runbook based on archetype from roadmap
-    runbook = load_runbook(roadmap_archetype, cfg) if roadmap_archetype else None
-    sprint_log = load_sprint_log(project_path, cfg)
-    archetypes_index = load_archetypes_index(cfg)
-
-    # Step 5: Determine validation commands from roadmap frontmatter
+    # Load validation commands from roadmap.md frontmatter
+    roadmap_text = load_roadmap_text(project_path, cfg)
+    roadmap_fm, _ = parse_frontmatter(roadmap_text)
     validation_commands: list[str] = roadmap_fm.get("validate") or []
-    if not validation_commands and archetypes_index and roadmap_archetype:
+
+    # Check archetypes index for default validate commands
+    archetypes_index = load_archetypes_index(cfg)
+    archetype = roadmap_fm.get("archetype", "")
+    if not validation_commands and archetypes_index and archetype:
         for entry in archetypes_index:
-            if entry.get("name") == roadmap_archetype:
+            if entry.get("name") == archetype:
                 validation_commands = entry.get("validate", [])
                 break
 
-    # Step 6: Determine sprint number
+    sprint_log = load_sprint_log(project_path, cfg)
     sprint_number = sprint_log.count("## Sprint") + 1
 
-    # --- Sprint loop ---
     while True:
-        # Step 7: Check max_sprints
+        # Check max_sprints
         if sprint_number > cfg.max_sprints:
             log(project_name, f"Reached max_sprints ({cfg.max_sprints}) — stopping", "🛑")
             break
 
-        # Step 8: Run planner in sprint mode
-        try:
-            planner_config = load_agent_config("planner", agents_dir)
-        except FileNotFoundError:
-            log(project_name, "No planner agent config found — stopping", "❌")
-            break
+        log(project_name, f"=== Ralph Sprint {sprint_number} ===", "🔄")
 
-        log(project_name, f"Sprint {sprint_number}: Running planner...", "📝")
-        planner_prompt = build_planner_prompt(
-            project_path,
-            sprint_mode=True,
-            roadmap=roadmap_body,
-            runbook=runbook or "",
-            sprint_log=sprint_log,
-        )
-        planner_result = await run_agent(
-            planner_config,
-            project_path,
-            planner_prompt,
-            project_name=project_name,
-            role_name="planner",
-        )
-        if not planner_result.success:
-            log(project_name, f"Planner failed: {planner_result.error}", "❌")
-            break
+        # Plan (internal: planner -> critic -> judge -> approved sprint.md)
+        log(project_name, f"Sprint {sprint_number}: Planning...", "📝")
+        await plan_project(project_path, agents_dir, cfg=cfg)
 
-        # Step 9: Run critic (sprint_mode=True) — optional, skip if missing
-        try:
-            critic_config = load_agent_config("critic", agents_dir)
-            log(project_name, "Running critic review...", "🔍")
-            critic_prompt = build_critic_prompt(project_path, sprint_mode=True)
-            await run_agent(
-                critic_config,
-                project_path,
-                critic_prompt,
-                project_name=project_name,
-                role_name="critic",
-            )
-        except FileNotFoundError:
-            log(project_name, "No critic agent config found — skipping", "⚠️")
-
-        # Step 10: Load sprint plan
+        # Check that plan succeeded and is approved
         sprint_manifest = load_sprint_plan(project_path, cfg)
-        if sprint_manifest is None:
-            log(project_name, "Planner did not write .dev/sprint.md — stopping", "❌")
-            break
-
-        # Step 11: Run judge on sprint plan
-        try:
-            judge_config = load_agent_config("judge", agents_dir)
-        except FileNotFoundError:
-            log(project_name, "No judge agent config found — stopping", "❌")
-            break
-
-        sprint_plan_path = str(cfg.sprint_path(project_path))
-        judge_prompt = build_judge_prompt(sprint_manifest, sprint_plan_path=sprint_plan_path)
-        judge_result = await run_agent(
-            judge_config,
-            project_path,
-            judge_prompt,
-            project_name=project_name,
-            role_name="judge",
-        )
-
-        is_ready, _feedback = parse_judge_result(judge_result.output)
-
-        if not is_ready and not auto_approve:
+        if sprint_manifest is None or not sprint_manifest.approved:
+            log(project_name, "Plan not approved after planning — stopping ralph", "❌")
             log(
                 project_name,
-                "Sprint plan not approved — set approved: true in .dev/sprint.md to continue",
+                "Review .dev/sprint.md and set approved: true, or fix the issues",
                 "👉",
             )
-            return
-        elif not is_ready and auto_approve:
-            log(project_name, "Sprint plan not ready but auto-approve is set — continuing", "⚠️")
+            break
 
-        # Step 12: Execute tasks from sprint.md
+        # Execute sprint
+        log(project_name, f"Sprint {sprint_number}: Executing...", "🔧")
         tasks_planned, tasks_completed, tasks_failed = await execute_sprint(
-            project_path, agents_dir, auto_approve=True, cfg=cfg
+            project_path, agents_dir, cfg=cfg
         )
-        total_cost = 0.0  # cost tracking deferred to task-006
 
-        # Step 13: Run validation hooks
+        # Stuck detection: if tasks failed, plant deferred task in roadmap.md
+        if tasks_failed > 0:
+            log(
+                project_name,
+                f"Sprint {sprint_number}: {tasks_failed} task(s) failed — stopping",
+                "🛑",
+            )
+            log(project_name, "Appending deferred investigation task to roadmap.md", "📝")
+            append_deferred_to_roadmap(project_path, cfg, sprint_number, tasks_failed)
+            # Still evaluate and log before breaking
+            goal_met, assessment = await evaluate_project(project_path, agents_dir, cfg=cfg)
+            sr = SprintResult(
+                sprint_number=sprint_number,
+                tasks_planned=tasks_planned,
+                tasks_completed=tasks_completed,
+                tasks_failed=tasks_failed,
+                validation_passed=False,
+                evaluation=assessment,
+                goal_met=goal_met,
+                cost_usd=0.0,
+            )
+            append_sprint_log(project_path, sr, cfg)
+            break
+
+        # Validate
         validation_passed, validation_output = await run_validation_hooks(
             project_path, validation_commands
         )
-
         if not validation_passed:
-            log(project_name, "Validation failed — attempting remediation", "⚠️")
+            log(project_name, f"Sprint {sprint_number}: Validation failed", "⚠️")
+            log(project_name, validation_output[:200], "")
 
-        remediation_retries = 0
-        while not validation_passed and remediation_retries < 2:
-            remediation_retries += 1
-            remediation_context = f"Validation failed:\n{validation_output}"
-            combined_sprint_log = f"{sprint_log}\n\nREMEDIATION CONTEXT:\n{remediation_context}"
-
-            log(
-                project_name,
-                f"Remediation attempt {remediation_retries}/2 — re-running planner...",
-                "🔄",
-            )
-            try:
-                rem_planner_config = load_agent_config("planner", agents_dir)
-            except FileNotFoundError:
-                log(project_name, "No planner agent config found — stopping remediation", "❌")
-                break
-
-            remediation_prompt = build_planner_prompt(
-                project_path,
-                sprint_mode=True,
-                roadmap=roadmap_body,
-                runbook=runbook or "",
-                sprint_log=combined_sprint_log,
-            )
-            rem_result = await run_agent(
-                rem_planner_config,
-                project_path,
-                remediation_prompt,
-                project_name=project_name,
-                role_name="planner",
-            )
-            if rem_result.success:
-                tasks_planned, tasks_completed, tasks_failed = await execute_sprint(
-                    project_path, agents_dir, auto_approve=True, cfg=cfg
-                )
-
-            validation_passed, validation_output = await run_validation_hooks(
-                project_path, validation_commands
-            )
-
-        if not validation_passed:
-            log(project_name, "Validation still failing after remediation attempts", "❌")
-
-        # Step 14: Evaluate
+        # Evaluate
         goal_met, assessment = await evaluate_project(project_path, agents_dir, cfg=cfg)
 
-        # Step 15: Build and append SprintResult
+        # Append sprint log
         sr = SprintResult(
             sprint_number=sprint_number,
             tasks_planned=tasks_planned,
@@ -847,24 +759,15 @@ async def sprint_project(
             tasks_failed=tasks_failed,
             validation_passed=validation_passed,
             evaluation=assessment,
-            strategy_satisfied=goal_met,
-            cost_usd=total_cost,
+            goal_met=goal_met,
+            cost_usd=0.0,
         )
         append_sprint_log(project_path, sr, cfg)
         sprint_log = load_sprint_log(project_path, cfg)
 
-        if total_cost > 0:
-            log(project_name, f"Sprint {sprint_number} cost: ${total_cost:.4f}", "💰")
-
-        # Step 16: Log outcome
         if goal_met:
-            log(project_name, f"Sprint {sprint_number}: Goal met!", "🎉")
-        else:
-            log(project_name, f"Sprint {sprint_number}: Goal not yet met", "🔄")
-
-        # Step 17: Break if satisfied or not looping
-        if goal_met or not auto_loop:
+            log(project_name, f"Sprint {sprint_number}: GOAL MET 🎉", "✅")
             break
 
-        # Step 18: Continue to next sprint
+        log(project_name, f"Sprint {sprint_number}: Goal not yet met — continuing", "🔄")
         sprint_number += 1

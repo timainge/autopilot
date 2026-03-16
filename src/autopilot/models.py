@@ -64,6 +64,6 @@ class SprintResult:
     tasks_completed: int
     tasks_failed: int
     validation_passed: bool
-    evaluation: str  # strategist's free-text assessment
-    strategy_satisfied: bool
+    evaluation: str  # evaluator's free-text assessment
+    goal_met: bool
     cost_usd: float = 0.0

@@ -435,11 +435,30 @@ def append_sprint_log(
         f"**Cost**: ${sprint_result.cost_usd:.2f}\n\n"
         f"### Assessment\n"
         f"{sprint_result.evaluation}\n\n"
-        f"**Strategy satisfied**: {'yes' if sprint_result.strategy_satisfied else 'no'}\n\n"
+        f"**Goal met**: {'yes' if sprint_result.goal_met else 'no'}\n\n"
         f"---\n"
     )
     with path.open("a", encoding="utf-8") as f:
         f.write(entry)
+
+
+def append_deferred_to_roadmap(
+    project_path: Path,
+    cfg: "AutopilotConfig",
+    sprint_number: int,
+    tasks_failed: int,
+) -> None:
+    """Append a deferred investigation task to roadmap.md."""
+    roadmap_path = cfg.roadmap_path(project_path)
+    if not roadmap_path.exists():
+        return
+    deferred_section = (
+        f"\n## Deferred (Sprint {sprint_number})\n\n"
+        f"- [ ] Investigate why {tasks_failed} task(s) failed in sprint {sprint_number} — "
+        f"consider re-planning or re-roadmapping before next ralph run\n"
+    )
+    with roadmap_path.open("a", encoding="utf-8") as f:
+        f.write(deferred_section)
 
 
 def load_sprint_plan(project_path: Path, cfg: "AutopilotConfig | None" = None) -> Manifest | None:

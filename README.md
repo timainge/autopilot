@@ -92,9 +92,9 @@ Equivalent to running `autopilot plan .` followed by `autopilot sprint --auto-ap
 
 ---
 
-## Roadmap-Driven Sprints
+## Roadmap-Driven Development (Ralph)
 
-For open-ended goals — "get this library to a publishable state", "make this API production-ready" — the sprint workflow lets you define what done looks like and let autopilot figure out the steps.
+For open-ended goals — "get this library to a publishable state", "make this API production-ready" — the `ralph` command is the fully autonomous outer loop. You describe the goal, autopilot figures out the tasks, runs sprints, and checks whether the goal has been met.
 
 ### Roadmap
 
@@ -107,29 +107,26 @@ The roadmap agent writes `.dev/roadmap.md` with:
 - YAML frontmatter: **goal type** (`launch`, `publish`, or `complete`), **archetype**, and `validate` commands
 - A shipping roadmap body: target, phases, steps, success criteria
 
-This file is both the sprint loop's input and its termination condition. The `validate` commands are shell commands that must pass for the goal to be met.
+This file is both ralph's input and its termination condition. The `validate` commands are shell commands that must pass for the goal to be met.
 
-### Sprint
+### Ralph (outer loop)
 
 ```bash
-# Plan and run one sprint, then stop for review
-autopilot sprint .
-
-# Skip manual review between sprints
-autopilot sprint --auto-approve .
-
-# Loop until the roadmap goal is met
-autopilot sprint --loop --auto-approve .
+# Run until goal met, stuck, or max_sprints reached
+autopilot ralph .
 ```
 
-Each sprint:
-1. Reads the roadmap (`.dev/roadmap.md`)
-2. Plans a focused task manifest for the next increment (planner + optional critic)
-3. Runs the worker loop
-4. Runs the `validate` commands and asks the roadmap agent to evaluate progress
-5. Reports whether the goal is met
+Each iteration:
+1. **Plan**: runs planner + critic + judge to produce an approved `.dev/sprint.md`
+2. **Execute**: runs the worker loop on the sprint tasks
+3. **Validate**: runs the `validate` commands from `roadmap.md` frontmatter
+4. **Evaluate**: asks the roadmap agent whether the goal has been met
 
-With `--loop`, sprints repeat until the goal is met or `max_sprints` is reached.
+Ralph loops until one of:
+- Goal is met (evaluator returns `GOAL_MET`)
+- Tasks fail in a sprint (appends a deferred investigation task to `roadmap.md` and stops)
+- `max_sprints` is reached
+- Plan is not approved after the judge loop
 
 ---
 
@@ -229,7 +226,7 @@ Agent configs live in `src/autopilot/agents/*.md` — YAML frontmatter + system 
 | `critic` | (internal to `plan`) | Reviews plan adversarially, edits manifest directly |
 | `researcher` | (internal) | Analyzes codebase → `.dev/project-summary.md` |
 | `deep-researcher` | `roadmap --deep` | Extended analysis with web search |
-| `roadmap` | `roadmap` / `sprint` | Shipping target + goal + validate → `.dev/roadmap.md` (create mode); evaluates sprint completion (evaluate mode) |
+| `roadmap` | `roadmap` / `ralph` | Shipping target + goal + validate → `.dev/roadmap.md` (create mode); evaluates goal completion (evaluate mode) |
 | `portfolio` | `portfolio` | Cross-project index → `<scan_dir>/.dev/portfolio.md` |
 
 ### Custom roles

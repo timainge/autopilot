@@ -13,7 +13,7 @@ Single Python package at `src/autopilot/`. Key modules:
 | Module | Responsibility |
 |--------|---------------|
 | `cli.py` | Argparse CLI, project discovery, fork-filtering, async entry point |
-| `orchestrator.py` | All agent pipelines: judge/worker/planner/researcher/portfolio/roadmap/sprint |
+| `orchestrator.py` | All agent pipelines: judge/worker/planner/researcher/portfolio/roadmap/ralph |
 | `manifest.py` | Parse/load/write manifests, task dependency resolution, agent config loading, runbook I/O, sprint log I/O |
 | `prompts.py` | Prompt builders for all agent roles; judge verdict parsing |
 | `agent.py` | Thin wrapper around `claude_agent_sdk.query()` — streams messages, tracks cost, names sessions |
@@ -21,7 +21,7 @@ Single Python package at `src/autopilot/`. Key modules:
 | `config.py` | `AutopilotConfig` dataclass with v2 fields; `load_config()` from TOML |
 | `log.py` | Timestamped status logging |
 
-**Agent role configs** live in `src/autopilot/agents/*.md` — markdown files with YAML frontmatter defining system prompts, allowed tools, budget, and permission mode for each role: `judge`, `worker`, `planner`, `critic`, `researcher`, `portfolio`, `roadmap`, `deep-researcher`.
+**Agent role configs** live in `src/autopilot/agents/*.md` — markdown files with YAML frontmatter defining system prompts, allowed tools, budget, and permission mode for each role: `judge`, `worker`, `planner`, `critic`, `researcher`, `portfolio`, `roadmap`, `roadmap-evaluate`, `deep-researcher`.
 
 **Bundled runbooks** live in `src/autopilot/runbooks/*.md` — markdown reference docs loaded at runtime via `load_runbook(archetype, cfg)`. The `python-cli` runbook ships with the package. Custom runbooks can be added to a project-local `runbooks/` directory (configured via `AutopilotConfig.runbooks_dir`).
 
@@ -34,6 +34,8 @@ Single Python package at `src/autopilot/`. Key modules:
 **`plan`**: Lazily runs roadmap agent if `.dev/roadmap.md` doesn't exist, then runs the planner agent to write `.dev/sprint.md`. The critic agent always runs if its config exists, followed by a judge loop (up to 2 rounds) that evaluates the plan and revises if needed. On judge READY, sets `approved: true` in sprint.md. Pass `--context <file>` to skip lazy research and seed the planner directly.
 
 **`roadmap`**: Runs roadmap agent → writes `.dev/roadmap.md` with `goal:`, `archetype:`, and `validate:` frontmatter plus shipping steps. Uses research summary if available. The roadmap is the authoritative goal+validate artifact. Pass `--deep` to run deep research first. Pass `--topic "question"` or `--topic-file brief.md` to run topic research (writes `.dev/research/{slug}/report.md`, no roadmap written).
+
+**`ralph`** (`orchestrator.py: ralph_project()`): Outer loop: `(plan → sprint → evaluate) × N` until GOAL_MET or stuck. Requires `.dev/roadmap.md`. Each iteration calls `plan_project()` (planner + critic + judge), `execute_sprint()` (worker loop), `run_validation_hooks()`, and `evaluate_project()`. If tasks fail, appends a deferred investigation task to `roadmap.md` and stops. Loops until `goal_met=True` or `max_sprints` reached.
 
 **`portfolio`**: Runs portfolio agent across all discovered projects → writes `<scan_dir>/.dev/portfolio.md`. Requires `--scan` or explicit paths.
 
@@ -67,6 +69,7 @@ autopilot plan .                             # Generate/improve manifest (plan +
 autopilot roadmap .                          # Build shipping roadmap (goal + validate)
 autopilot roadmap --deep .                   # Deep research then build roadmap
 autopilot roadmap --topic "question" .       # Research a specific topic
+autopilot ralph .                            # Outer loop until goal met or stuck
 autopilot sprint --scan ~/Projects           # Auto-discover and process all projects
 uv run ruff check src/                      # Lint
 uv run ruff format --check src/             # Format check

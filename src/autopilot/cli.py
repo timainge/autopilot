@@ -25,10 +25,11 @@ from .orchestrator import (
     build_project,
     execute_sprint,
     plan_project,
+    ralph_project,
     roadmap_project,
 )
 
-SUBCOMMANDS = {"sprint", "plan", "roadmap", "portfolio", "build"}
+SUBCOMMANDS = {"sprint", "plan", "roadmap", "portfolio", "build", "ralph"}
 _VALUE_FLAGS = {"--scan", "--agents-dir", "--context", "--topic", "--topic-file"}
 _TERMINAL_FLAGS = {"--version", "--help", "-h"}  # let top-level parser handle these
 
@@ -173,6 +174,17 @@ def parse_args() -> argparse.Namespace:
         help="Bypass the approved check when executing",
     )
 
+    # ralph subcommand
+    ralph_p = subparsers.add_parser(
+        "ralph", help="Outer loop: plan → sprint → evaluate until goal met"
+    )
+    _add_common(ralph_p)
+    ralph_p.add_argument(
+        "--auto-approve",
+        action="store_true",
+        help="Bypass sprint plan approval check (use with caution)",
+    )
+
     return parser.parse_args()
 
 
@@ -220,7 +232,7 @@ async def async_main() -> None:
         project_paths = [Path(p).expanduser().resolve() for p in args.projects]
     else:
         cwd = Path.cwd()
-        if args.subcommand in {"plan", "roadmap", "build"}:
+        if args.subcommand in {"plan", "roadmap", "build", "ralph"}:
             project_paths = [cwd]
         elif global_cfg.sprint_path(cwd).exists():
             project_paths = [cwd]
@@ -332,6 +344,13 @@ async def async_main() -> None:
                         project_path,
                         agents_dir,
                         context_file=context_file,
+                        auto_approve=args.auto_approve,
+                        cfg=cfg,
+                    )
+                case "ralph":
+                    await ralph_project(
+                        project_path,
+                        agents_dir,
                         auto_approve=args.auto_approve,
                         cfg=cfg,
                     )
