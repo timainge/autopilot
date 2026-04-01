@@ -2,7 +2,7 @@
 .dev/
 
 # MkDocs build output
-site/
+docs/site/
 
 # Python
 __pycache__/

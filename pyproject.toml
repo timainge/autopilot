@@ -40,15 +40,19 @@ packages = ["src/autopilot"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/autopilot/agents" = "autopilot/agents"
+"src/autopilot/runbooks" = "autopilot/runbooks"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "ruff>=0.4",
     "twine>=5.0",
-    "mkdocs>=1.6",
-    "mkdocs-material>=9.5",
-    "mkdocs-minify-plugin>=0.8",
+]
+
+[dependency-groups]
+docs = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-shadcn>=0.9",
 ]
 
 [tool.pytest.ini_options]

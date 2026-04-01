@@ -37,15 +37,6 @@ Some projects also have a `.dev/project-summary.md` with deeper analysis
 (tech stack, code quality, completion %). If present, use it for additional
 detail — but the roadmap is authoritative for goal, target, and status.
 
-### Fallback for projects without a roadmap
-If a project somehow lacks a roadmap, do a quick assessment (spend no more
-than 2-3 tool calls):
-- Read `README.md` or `package.json` / `pyproject.toml` for a description
-- Check `git log --oneline -3` for recent activity
-- Note the primary language/framework from file extensions or config
-
-Don't do a deep analysis — just enough to fill in the index table.
-
 ## Output Format
 
 Write the portfolio to `.dev/portfolio.md` using this structure:
