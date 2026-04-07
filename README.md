@@ -40,8 +40,10 @@ uv pip install claude-autopilot
 Requires a Claude API key from [console.anthropic.com](https://console.anthropic.com):
 
 ```bash
-export ANTHROPIC_API_KEY=your-key-here
+ANTHROPIC_API_KEY=your-key-here autopilot build .
 ```
+
+> **Note:** Don't export `ANTHROPIC_API_KEY` globally in your shell — Claude Code picks it up and will bill interactive sessions at API rates instead of your subscription. Pass it inline or via a `.env` file.
 
 ---
 
