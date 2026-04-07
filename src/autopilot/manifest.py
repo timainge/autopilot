@@ -204,6 +204,36 @@ def update_manifest_frontmatter(manifest: Manifest, updates: dict[str, Any]) -> 
             setattr(manifest, key, value)
 
 
+def ensure_sprint_frontmatter(project_path: Path, cfg: "AutopilotConfig | None" = None) -> None:
+    """Prepend default YAML frontmatter to sprint.md if it has none.
+
+    Called after the planner writes sprint.md (which has no frontmatter by design)
+    so that subsequent orchestrator steps can read and update fields like approved/status.
+    """
+    from .config import load_config
+
+    if cfg is None:
+        cfg = load_config(project_path)
+
+    sprint_file = cfg.sprint_path(project_path)
+    if not sprint_file.exists():
+        return
+
+    content = sprint_file.read_text(encoding="utf-8")
+    if content.startswith("---"):
+        return  # Already has frontmatter
+
+    defaults: dict[str, Any] = {
+        "name": project_path.name,
+        "approved": False,
+        "status": "pending",
+        "max_budget_usd": 5.0,
+        "max_task_attempts": 3,
+    }
+    fm_text = yaml.dump(defaults, default_flow_style=False, sort_keys=False)
+    sprint_file.write_text(f"---\n{fm_text}---\n{content}", encoding="utf-8")
+
+
 def load_agent_config(name: str, agents_dir: Path) -> AgentConfig:
     """Load an agent role config from a markdown file with frontmatter."""
     agent_path = agents_dir / f"{name}.md"

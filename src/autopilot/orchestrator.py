@@ -9,6 +9,7 @@ from .log import log
 from .manifest import (
     append_deferred_to_roadmap,
     append_sprint_log,
+    ensure_sprint_frontmatter,
     get_next_task,
     get_task_summary,
     load_agent_config,
@@ -85,6 +86,9 @@ async def plan_project(
 
     if not result.success:
         return
+
+    # Ensure sprint.md has frontmatter with defaults (planner writes pure markdown)
+    ensure_sprint_frontmatter(project_path, cfg)
 
     # Critic always runs if config exists
     try:
@@ -715,7 +719,7 @@ async def ralph_project(
 
         # Check that plan succeeded and is approved
         sprint_manifest = load_sprint_plan(project_path, cfg)
-        if sprint_manifest is None or not sprint_manifest.approved:
+        if sprint_manifest is None or (not sprint_manifest.approved and not auto_approve):
             log(project_name, "Plan not approved after planning — stopping ralph", "❌")
             log(
                 project_name,
@@ -727,7 +731,7 @@ async def ralph_project(
         # Execute sprint
         log(project_name, f"Sprint {sprint_number}: Executing...", "🔧")
         tasks_planned, tasks_completed, tasks_failed = await execute_sprint(
-            project_path, agents_dir, cfg=cfg
+            project_path, agents_dir, auto_approve=auto_approve, cfg=cfg
         )
 
         # Stuck detection: if tasks failed, plant deferred task in roadmap.md
