@@ -7,7 +7,7 @@ import pytest
 from autopilot.manifest import (
     get_next_task,
     get_task_summary,
-    load_manifest,
+    load_sprint_plan,
     parse_frontmatter,
     parse_tasks,
     slugify,
@@ -186,9 +186,9 @@ Done already.
 def test_load_manifest_full(tmp_path: Path):
     dev = tmp_path / ".dev"
     dev.mkdir()
-    (dev / "autopilot.md").write_text(FULL_MANIFEST)
+    (dev / "sprint.md").write_text(FULL_MANIFEST)
 
-    manifest = load_manifest(tmp_path)
+    manifest = load_sprint_plan(tmp_path)
     assert manifest is not None
     assert manifest.name == "My Project"
     assert manifest.approved is True
@@ -198,15 +198,15 @@ def test_load_manifest_full(tmp_path: Path):
 
 
 def test_load_manifest_missing(tmp_path: Path):
-    assert load_manifest(tmp_path) is None
+    assert load_sprint_plan(tmp_path) is None
 
 
 def test_load_manifest_no_frontmatter_defaults(tmp_path: Path):
     dev = tmp_path / ".dev"
     dev.mkdir()
-    (dev / "autopilot.md").write_text("### [ ] only-task\nDo it.\n")
+    (dev / "sprint.md").write_text("### [ ] only-task\nDo it.\n")
 
-    manifest = load_manifest(tmp_path)
+    manifest = load_sprint_plan(tmp_path)
     assert manifest is not None
     assert manifest.approved is False
     assert manifest.status == "pending"

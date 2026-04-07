@@ -231,8 +231,7 @@ async def build_portfolio(
             use_deep = not has_summary and not has_research
             log(
                 "portfolio",
-                f"No roadmap for {project.name}"
-                f" — generating{' (deep)' if use_deep else ''}...",
+                f"No roadmap for {project.name} — generating{' (deep)' if use_deep else ''}...",
                 "🗺️",
             )
             await roadmap_project(project, agents_dir, deep=use_deep, cfg=cfg)
@@ -588,9 +587,7 @@ async def execute_sprint(
             break
 
         sprint_plan_path = str(cfg.sprint_path(project_path))
-        worker_prompt = build_worker_prompt(
-            current_sprint, task, sprint_plan_path=sprint_plan_path
-        )
+        worker_prompt = build_worker_prompt(current_sprint, task, sprint_plan_path=sprint_plan_path)
         result = await run_agent(
             worker_config,
             project_path,

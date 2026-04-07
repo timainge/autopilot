@@ -307,9 +307,7 @@ async def async_main() -> None:
             cfg = load_config(project_path)
             match args.subcommand:
                 case "plan":
-                    await plan_project(
-                        project_path, agents_dir, context_file, cfg=cfg
-                    )
+                    await plan_project(project_path, agents_dir, context_file, cfg=cfg)
                 case "roadmap":
                     await roadmap_project(
                         project_path,
