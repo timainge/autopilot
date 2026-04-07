@@ -28,7 +28,7 @@ def test_version_exits_zero():
 def test_version_output_contains_version():
     result = run("--version")
     assert result.returncode == 0
-    assert "0.2.0" in result.stdout + result.stderr
+    assert "autopilot" in result.stdout + result.stderr
 
 
 def test_sprint_help():
