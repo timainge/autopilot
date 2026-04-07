@@ -17,6 +17,46 @@
 .dark .hero-dark { display: inline; }
 .dark .hero-light { display: none; }
 
+/* ── Experimental banner ─────────────────────────────────── */
+.beta-banner {
+  position: sticky;
+  top: 0;
+  z-index: 51;
+  text-align: center;
+  font-size: 0.8rem;
+  padding: 0.4rem 1rem;
+  background: hsl(45 100% 94%);
+  border-bottom: 1px solid hsl(45 80% 85%);
+  color: hsl(var(--muted-foreground));
+}
+
+.beta-banner ~ header {
+  top: 33px;
+}
+
+.beta-pill {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.1em 0.45em;
+  border-radius: 4px;
+  background: hsl(45 100% 50% / 0.2);
+  color: hsl(40 90% 40%);
+  vertical-align: middle;
+  margin-right: 0.25em;
+}
+
+.dark .beta-banner {
+  background: hsl(40 30% 12%);
+  border-bottom-color: hsl(40 20% 20%);
+}
+
+.dark .beta-pill {
+  color: hsl(45 100% 70%);
+}
+
 /* ── Logo dark mode — invert black SVG to white ─────────── */
 .dark img[src*="logo"] {
   filter: invert(1);
