@@ -37,15 +37,10 @@ pip install claude-autopilot
 uv pip install claude-autopilot
 ```
 
-Requires a Claude API key or Claude Code subscription token:
+Requires a Claude API key from [console.anthropic.com](https://console.anthropic.com):
 
 ```bash
-# Option A: API key
 export ANTHROPIC_API_KEY=your-key-here
-
-# Option B: Claude Code subscription (Max/Pro)
-claude setup-token
-export CLAUDE_CODE_OAUTH_TOKEN=<token from above>
 ```
 
 ---
