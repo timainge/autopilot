@@ -28,7 +28,7 @@ jobs:
         run: uv build
 
       - name: Check distribution
-        run: uv run twine check dist/*
+        run: uvx twine check dist/*
 
       - name: Store distribution packages
         uses: actions/upload-artifact@v4
@@ -41,7 +41,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     environment:
-      name: pypi
+      name: release
       url: https://pypi.org/project/claude-autopilot/
     permissions:
       id-token: write
