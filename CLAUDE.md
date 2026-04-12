@@ -89,3 +89,5 @@ There are no tests yet (smoke tests planned before v0.1.0 release — see `.dev/
 When adding or changing features that affect CLI usage, agent roles, or the manifest format, update `README.md`. The README is the primary user-facing documentation.
 
 Release plans and post-MVP features tracked in `.dev/roadmap.md` and `.dev/plans/`.
+
+Architecture and design vision docs live in `.dev/vision*.md`. The index is at `.dev/vision-index.md`. These cover the domain model refactor, eval framework, Frink harness, sandbox execution, and other post-Phase-1 directions. Read the relevant vision doc before implementing any feature they describe.
