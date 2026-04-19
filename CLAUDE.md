@@ -1,116 +1,130 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working with this repository.
-
----
-
-## Refactor Mode Active
-
-Phase 1 domain model refactor is in progress on branch `phase-1-refactor`. The package
-at `src/autopilot/` is being rebuilt from scratch. Old code lives at
-`.archive/autopilot/` and is **reference-only**.
-
-### No Backwards Compatibility
-
-Existing field names, file formats, CLI flags, and APIs are **not constraints**. Breaking
-changes are the default, not the exception.
-
-- Do not write migration shims, compatibility wrappers, or deprecation paths.
-- Do not preserve an abstraction because "existing projects might depend on it."
-- Do not keep a field name, file layout, or CLI flag out of loyalty to the archived
-  implementation. If the old shape is wrong, break it.
-
-If preservation is ever the right call, `.dev/phase-1-design.md §9 Feature Parity Matrix`
-flags it explicitly. Absence from that matrix = nothing to preserve.
-
-### Greenfield Discipline
-
-`.archive/` is reference-only.
-
-- **Do not import from it.** `from autopilot.archive...` is forbidden. The firewall is
-  physical: `.archive/` is outside the Python package path.
-- **Do not copy patterns from it.** Read `.dev/vision.md` and `.dev/phase-1-design.md` to
-  understand the target. Consult `.archive/` only to answer specific behavioural
-  questions the docs don't cover — and then state the question, not the conclusion.
-- **Do not treat it as a fallback.** If the design doc is unclear, ask or update the
-  design doc. Do not silently fall back to "do what the old code did."
-
-### Authoritative Docs
-
-Read in order:
-
-1. `.dev/vision-index.md` — routing document. Start here for the reading order.
-2. `.dev/phase-1-design.md` — implementation design. **The contract.**
-3. `.dev/vision.md` — design intent.
-4. `.dev/vision-testing.md` — correctness layers.
-5. `.dev/phase-1-smoke-tests.md` — the tests the refactor must pass to merge.
-
-All Phase 1 work derives from these. No undocumented design decisions.
+Guidance for Claude Code working in this repository.
 
 ---
 
 ## Project Overview
 
-Autopilot is an autonomous project session orchestrator for Claude Code. It reads a
-project's roadmap, plans a sprint against the next goal, executes the sprint through the
-Anthropic Agent SDK, and loops until goals are achieved. The filesystem under `.dev/` is
-live, ambient state: it reflects what is planned, in progress, succeeded, or failed at
-any moment.
+Autopilot is an autonomous project session orchestrator for Claude Code. It
+reads a project's roadmap, plans a sprint against the next goal, executes the
+sprint through the Claude Agent SDK, and loops until goals are achieved. The
+filesystem under `.dev/` is live, ambient state: it reflects what is planned,
+in progress, succeeded, or failed at any moment.
 
-Domain hierarchy: `Roadmap → Goals → Sprints → Tasks`. Full model in `phase-1-design.md`.
+Domain hierarchy: `Roadmap → Goals → Sprints → Tasks`. Full model in
+`design.md`.
+
+---
+
+## Status
+
+Phase 1 (domain model refactor) is implementation-complete. Smoke + fault
+suites green. Phase 2 closes remaining gaps (structural judge pass, CLI
+atomic commands, role alignment) before `phase-1-refactor` merges to `main`.
+See `.dev/phase-2.md` for active work, `.dev/phase-3.md` for deferred
+directions.
+
+---
+
+## Authoritative Docs
+
+Read in order. Each is canonical for its scope.
+
+1. `.dev/vision-index.md` — reading-order router. Start here.
+2. `.dev/design.md` — implementation design. The contract.
+3. `.dev/workflows.md` — CLI surface, entity lifecycle, loop composition.
+4. `.dev/vision.md` — authoritative design intent.
+5. `.dev/vision-testing.md` — the three correctness layers (smoke / fault /
+   judge).
+6. `.dev/smoke-tests.md` — the tests the refactor passed to merge.
+7. `.dev/phase-2.md` — active next-steps.
+8. `.dev/phase-3.md` — deferred directions; do not ship from this doc.
+
+Undocumented design decisions are a bug. If the docs are unclear, ask or
+update them — do not guess.
+
+---
+
+## Archive Policy
+
+`.archive/autopilot/` holds the pre-refactor implementation and is
+**reference-only**.
+
+- Do not import from it. `from autopilot.archive...` is forbidden — the
+  firewall is physical (archive is outside the package path).
+- Do not copy patterns from it. Read the authoritative docs to understand
+  the target. Consult `.archive/` only to answer a specific behavioural
+  question the docs don't cover — and state the question, not the
+  conclusion.
+- Do not treat it as a fallback. If a design doc is silent, ask or edit
+  the doc.
+
+---
+
+## Forward-Change Posture
+
+No backwards compatibility constraints today. Breaking changes are the
+default until there's a first external user — none yet.
+
+- No migration shims, no compatibility wrappers, no deprecation paths.
+- Do not preserve a field name / file layout / CLI flag out of loyalty to
+  any prior shape. If it's wrong, break it.
+- Once a first external user exists, breaking changes go in release notes
+  with a minor-version bump. Still no shims.
 
 ---
 
 ## Development Commands
 
-The CLI surface is in flux during the refactor. Target shape is documented in
-`phase-1-design.md §3 Scope`. During rebuild, the package may not install or run at all —
-this is expected.
-
-Always-useful commands:
-
 ```bash
-uv pip install -e .                 # editable install (will error until new cli is built)
-uv run ruff check src/              # lint
-uv run ruff format --check src/     # format check
-tests/smoke/run.sh                  # smoke tests (after phase-1-smoke-tests.md is implemented)
+uv pip install -e .                     # editable install
+uv run autopilot --help                 # smoke the CLI
+uv run ruff check src/                  # lint
+uv run ruff format --check src/         # format check
+tests/smoke/run.sh                      # default smoke suite (S1–S5 + lint)
+tests/smoke/run.sh fault                # fault injection (F1–F3)
 ```
 
-The smoke tests are the primary correctness signal (per `vision-testing.md`). Unit tests
-have a small, narrow role at the serialization boundary — do not drive the refactor
-from them.
+Smoke tests are the primary correctness signal (per `vision-testing.md`).
+Unit tests have a small, narrow role at the serialization boundary — do not
+drive design from them.
 
 ---
 
 ## Code Style
 
-- Python 3.11+, async/await throughout
-- Ruff: line length 100, rules `E, F, I, N, W, UP`
-- Dataclasses (not Pydantic)
-- Type hints with `X | None` union syntax (not `Optional`)
-- No docstrings on trivial methods; one-line docstrings on non-obvious ones. No
-  multi-paragraph docstrings. Comments are for WHY-non-obvious only.
-- Active record: entities own their persistence via `@persists`. No free-function
-  `save_task(task)`. No separate repository layer.
-- Validate on mutate: invariants in constructors and mutation methods. No separate
-  `validate()` methods. No fixup passes.
+- Python 3.11+, async/await throughout.
+- Ruff: line length 100, rules `E, F, I, N, W, UP`.
+- Dataclasses (not Pydantic).
+- Type hints with `X | None` union syntax (not `Optional`).
+- No docstrings on trivial methods. One-line docstrings on non-obvious
+  ones. No multi-paragraph docstrings. Comments are for WHY-non-obvious
+  only.
+- Active record: entities own their persistence via `@persists`. No free-
+  function `save_task(task)`. No repository layer.
+- Validate on mutate: invariants in `__post_init__` and mutation methods.
+  No separate `validate()`. No fixup passes.
+- Tunables live in `AutopilotConfig` (see `design.md §12.13`). Literals in
+  call sites are bugs.
+- Paths are `pathlib.Path`. File I/O specifies `encoding="utf-8"`.
 
 ---
 
 ## Branch Strategy
 
-- Refactor work: `phase-1-refactor` branch.
-- Main stays shippable from `src/autopilot/` as it was pre-refactor (via the archive if
-  a hotfix is needed — but v0.2.x releases from main should not require touching the
-  archive).
-- Merge gate: smoke tests green + fault injection passes + structural judge finds no
-  divergence from `phase-1-design.md`.
+- Active work: `phase-1-refactor` (pending Phase 2 completion + merge to
+  `main`).
+- After merge: `main` is authoritative; feature branches off `main`.
+- Merge gate to `main`: `phase-2.md §3` — smoke green, fault green,
+  structural judge ALIGNED on all principles, CLI atomics complete, role
+  alignment lint green.
 
 ---
 
 ## When In Doubt
 
-Ask. The cost of a clarifying question is small; the cost of a guess that encodes the
-wrong assumption across the refactor is large. Prefer pausing to check over proceeding
-with unstated assumptions — especially when the design doc is silent on a specific
-decision, or when archived behaviour seems to conflict with the target design.
+Ask. The cost of a clarifying question is small; the cost of a guess that
+encodes the wrong assumption is large. Pause and check rather than
+proceeding on an unstated assumption — especially when the design docs are
+silent, or when archive behaviour seems to conflict with the target.

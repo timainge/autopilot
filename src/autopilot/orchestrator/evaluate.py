@@ -111,6 +111,8 @@ async def sprint_evaluate(
     Mechanical evals are authoritative (workflows §7 row 21). The evaluator
     agent only runs when all mechanical evals pass (or none exist).
     """
+    reasoning_chars = cfg.verdict_reasoning_max_chars
+    summary_chars = cfg.verdict_summary_max_chars
     # Mechanical goal evals.
     for idx, eval_def in enumerate(goal.eval):
         ref = EvalRef(entity_type="goal", entity_id=goal.id, eval_index=idx)
@@ -120,13 +122,13 @@ async def sprint_evaluate(
             return EvaluatorVerdict(
                 achieved=False,
                 summary=f"goal eval {idx} errored",
-                reasoning=(run.output or "")[:2000],
+                reasoning=(run.output or "")[:reasoning_chars],
             )
         if run.status == "failed":
             return EvaluatorVerdict(
                 achieved=False,
                 summary=f"goal eval {idx} failed",
-                reasoning=(run.output or "")[:2000],
+                reasoning=(run.output or "")[:reasoning_chars],
             )
 
     # Evaluator agent.
@@ -152,9 +154,9 @@ async def sprint_evaluate(
     else:
         achieved = parsed
 
-    summary = (result.summary or result.output[:500] or "goal assessed").strip()
+    summary = (result.summary or result.output[:summary_chars] or "goal assessed").strip()
     return EvaluatorVerdict(
         achieved=achieved,
         summary=summary,
-        reasoning=result.output[:2000],
+        reasoning=result.output[:reasoning_chars],
     )

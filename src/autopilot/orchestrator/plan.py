@@ -188,11 +188,15 @@ async def smithers(
 
         try:
             sprint_text, task_texts = _parse_planner_output(planner_result.output)
-            sprint_draft = parse_sprint(sprint_text, task_texts)
-            # Align id with the file-system slot we reserved.
-            sprint_draft.id = sprint_id
-            # Override primary_goal: orchestrator authoritative, not planner output.
-            sprint_draft.primary_goal = goal.id
+            # Orchestrator authoritative for id (filesystem slot we reserved)
+            # and primary_goal — override planner frontmatter at parse time so
+            # the final Sprint is constructed with authoritative values.
+            sprint_draft = parse_sprint(
+                sprint_text,
+                task_texts,
+                expected_id=sprint_id,
+                expected_primary_goal=goal.id,
+            )
         except (ParseError, ValidationError) as e:
             feedback = f"planner output failed to parse: {e}"
             rounds.append(

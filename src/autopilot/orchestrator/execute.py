@@ -81,6 +81,7 @@ async def run_task(
             task.fail(result.error or "worker call failed")
             continue
 
+        summary_chars = cfg.task_output_summary_chars
         eval_failed = False
         eval_error: str | None = None
         for idx, eval_def in enumerate(task.eval):
@@ -96,21 +97,23 @@ async def run_task(
             )
             run = await run_eval(eval_def, ref, ctx)
             if run.status == "error":
-                task.fail(f"eval infrastructure error: {run.output[:500]}")
+                task.fail(f"eval infrastructure error: {run.output[:summary_chars]}")
                 raise EvalInfrastructureError(
                     eval_ref=f"task/{task.id}#{idx}",
-                    reason=run.output[:500] or "unknown eval error",
+                    reason=run.output[:summary_chars] or "unknown eval error",
                 )
             if run.status == "failed":
                 eval_failed = True
-                eval_error = f"eval failed: {run.output[:500]}"
+                eval_error = f"eval failed: {run.output[:summary_chars]}"
                 break
 
         if eval_failed:
             task.fail(eval_error or "eval failed")
             continue
 
-        summary = result.summary or (result.output[:500] if result.output else "task completed")
+        summary = result.summary or (
+            result.output[:summary_chars] if result.output else "task completed"
+        )
         task.complete(summary=summary)
         return
 
@@ -140,8 +143,7 @@ async def homer(
     # re-attempt it cleanly. The prior attempt record is preserved.
     for task in sprint.tasks:
         if task.status == "active":
-            task.status = "pending"
-            task._save()
+            task.resume()
 
     ordered = topo_sort(sprint.tasks)
 

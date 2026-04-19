@@ -10,8 +10,15 @@ class AutopilotConfig:
     # Retry + loop caps
     max_task_attempts: int = 2
     max_judge_rounds: int = 2
+    max_judge_parse_retries: int = 2
     max_sprints: int = 10
     max_parallel: int = 1
+
+    # Truncation knobs — operator-visible limits on how much text is carried
+    # through into stored summaries / reasoning / prompts.
+    task_output_summary_chars: int = 500
+    verdict_reasoning_max_chars: int = 2000
+    verdict_summary_max_chars: int = 500
 
     # Timeouts
     eval_shell_timeout_sec: int = 120

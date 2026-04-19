@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import yaml
 
 from autopilot.domain.goal import Goal
 from autopilot.domain.roadmap import Roadmap
 from autopilot.domain.sprint import Sprint
 from autopilot.domain.task import AttemptRecord, Task
+
+# How much task-intent text to include in prompt summary lines.
+_INTENT_SNIPPET_CHARS = 120
 
 # Task scope integrity — verbatim from `.dev/vision.md §Task Scope Integrity`.
 # This is prompt-level protection (permission-level backstop is a follow-up).
@@ -89,6 +94,53 @@ def _prior_sprint_summary(sprint: Sprint) -> str:
     return line
 
 
+_PLANNER_OUTPUT_CONTRACT = """\
+OUTPUT CONTRACT — strict. The orchestrator parses your response text by
+splitting on `### FILE:` headers. Do not write to disk; return one response
+containing one sprint block and one block per task.
+
+Format (exact):
+
+    ### FILE: sprint-NNN.md
+    ---
+    id: sprint-NNN
+    primary_goal: <goal-id>
+    status: planning
+    ---
+
+    # Sprint NNN — <title>
+
+    ## Context
+    <prose>
+
+    ## Tasks
+    - [001](task-001.md): <summary>
+    - [002](task-002.md): <summary>
+
+    ### FILE: task-001.md
+    ---
+    id: '001'
+    depends_on: []
+    status: pending
+    eval: []
+    attempts: []
+    summary: null
+    ---
+
+    # <task title>
+    <prose + Done: + optional Watch:>
+
+    ### FILE: task-002.md
+    ...
+
+Rules:
+- Exactly one `sprint-NNN.md` block; the parser keys on that filename.
+- One `task-NNN.md` block per task, filenames zero-padded three digits.
+- Every frontmatter field above is required. Unknown fields are rejected.
+- No prose or code fences outside the blocks. No leading preamble. The
+  parser splits strictly on the `### FILE:` line."""
+
+
 def build_planner_prompt(
     roadmap: Roadmap,
     goal: Goal,
@@ -98,13 +150,12 @@ def build_planner_prompt(
 ) -> str:
     """Planner prompt: roadmap narrative + goal + prior sprints + research + feedback.
 
-    Semantic intent matches the archived `build_planner_prompt`, re-expressed against
-    the new entity shapes. Agent outputs are parsed into Sprint/Task entities downstream.
+    Output is parsed into Sprint/Task entities by `_parse_planner_output` (plan.py):
+    the prompt specifies the `### FILE:` envelope contract literally so the model
+    cannot drift onto a side-writes-files interpretation.
     """
     sections: list[str] = [
-        "Plan the next sprint. Write a sprint context body and one markdown task file",
-        "per task, each with full YAML frontmatter. The orchestrator will parse your",
-        "output into Sprint and Task entities, so frontmatter must validate.",
+        "Plan the next sprint against the target goal below.",
         "",
         f"Archetype: {roadmap.archetype}",
         "",
@@ -133,6 +184,8 @@ def build_planner_prompt(
         "",
         "CONSTRAINT: Each sprint must leave the project in a working state",
         "(tests pass, no broken imports).",
+        "",
+        _PLANNER_OUTPUT_CONTRACT,
     ]
     return "\n".join(sections)
 
@@ -148,7 +201,10 @@ def _sprint_yaml(sprint: Sprint) -> str:
 
 def _task_index(task: Task) -> str:
     deps = f" depends_on={task.depends_on}" if task.depends_on else ""
-    return f"- {task.id} [{task.status}]{deps}: {task.intent.strip().splitlines()[0][:120]}"
+    return (
+        f"- {task.id} [{task.status}]{deps}: "
+        f"{task.intent.strip().splitlines()[0][:_INTENT_SNIPPET_CHARS]}"
+    )
 
 
 def build_critic_prompt(sprint: Sprint, goal: Goal) -> str:
@@ -194,6 +250,78 @@ def build_judge_prompt(sprint: Sprint, goal: Goal, critic_notes: str) -> str:
         "Followed by feedback explaining the decision. If NOT_READY, list the",
         "specific changes required before the sprint can be approved.",
     ]
+    return "\n".join(sections)
+
+
+_ROADMAP_OUTPUT_CONTRACT = """\
+OUTPUT CONTRACT — strict. The orchestrator parses your response text by
+splitting on `### FILE:` headers. Do not write to disk; return one response
+containing one roadmap block and one block per goal.
+
+Format (exact):
+
+    ### FILE: roadmap.md
+    ---
+    archetype: <archetype-id>
+    eval: []
+    ---
+
+    # Roadmap
+    <narrative>
+
+    ### FILE: goal-<id>.md
+    ---
+    id: <goal-id>
+    priority: 1
+    status: pending
+    eval: []
+    achieved_by: []
+    summary: null
+    ---
+
+    # Goal: <title>
+    <intent>
+
+Rules:
+- Exactly one `roadmap.md` block.
+- One `goal-<id>.md` block per goal; ids slug-style.
+- Priority ordering starts at 1 and increments.
+- No prose outside the blocks."""
+
+
+def build_researcher_prompt(topic: str, project_root: Path) -> str:
+    """Researcher prompt: topic + project root. Output is raw markdown (no FILE: envelope)."""
+    return (
+        f"Research the topic `{topic}` for the project at `{project_root}`. "
+        "Explore the codebase as needed, then return a concise markdown summary "
+        "of your findings. Your entire response becomes the research document — "
+        "no leading preamble, no file envelope.\n"
+    )
+
+
+def build_roadmap_prompt(
+    project_root: Path,
+    *,
+    research: str | None = None,
+    existing_roadmap: str | None = None,
+) -> str:
+    """Roadmap prompt: create or revise. Emits `### FILE:` envelopes parsed by the CLI."""
+    sections: list[str] = []
+    if existing_roadmap is not None:
+        sections.append(
+            "Revise the existing roadmap for this project. Update goals, add or "
+            "remove them as needed, and rewrite the narrative."
+        )
+        sections += ["", _fence("EXISTING ROADMAP", existing_roadmap.strip())]
+    else:
+        sections.append(
+            "Create a shipping roadmap for this project. Pick a concrete target, "
+            "write the narrative, and enumerate initial goals."
+        )
+    sections += ["", f"Project root: {project_root}"]
+    if research:
+        sections += ["", _fence("RESEARCH", research.strip())]
+    sections += ["", _ROADMAP_OUTPUT_CONTRACT]
     return "\n".join(sections)
 
 

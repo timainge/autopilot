@@ -10,6 +10,9 @@ from autopilot.domain.errors import InvalidTransition, ValidationError
 from autopilot.domain.eval import Eval
 from autopilot.domain.persists import atomic_write, persists
 
+# Per design §5.1: error strings truncated at 2000 chars before persisting.
+_ERROR_TRUNCATE_CHARS = 2_000
+
 
 @dataclass
 class AttemptRecord:
@@ -42,6 +45,22 @@ class Task:
                 field="intent",
                 reason="task.intent required",
             )
+
+    @persists
+    def resume(self) -> None:
+        """Reset an `active` task left over from a killed prior run to `pending`.
+
+        Preserves the open attempt record. Only valid from `active` — other
+        statuses raise `InvalidTransition`.
+        """
+        if self.status != "active":
+            raise InvalidTransition(
+                entity_type="task",
+                entity_id=self.id,
+                current_status=self.status,
+                attempted_transition="resume",
+            )
+        self.status = "pending"
 
     @persists
     def start(self) -> None:
@@ -93,7 +112,7 @@ class Task:
                 field="error",
                 reason="fail requires error",
             )
-        truncated = _truncate(error, 2000)
+        truncated = _truncate(error, _ERROR_TRUNCATE_CHARS)
         self.status = "failed"
         if not self.attempts:
             # fail() from pending with no attempts: record a synthetic attempt.

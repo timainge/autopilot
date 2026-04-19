@@ -15,10 +15,21 @@ if [ "$MODE" = "default" ]; then
     "tests/smoke/s3-ralph.sh"
     "tests/smoke/s4-failure.sh"
     "tests/smoke/s5-chaining.sh"
+    "tests/smoke/a01-research.sh"
+    "tests/smoke/a02-roadmap-create.sh"
+    "tests/smoke/a03-roadmap-revise.sh"
+    "tests/smoke/a04-sprint-plan.sh"
+    "tests/smoke/a05-sprint-critique.sh"
+    "tests/smoke/a06-sprint-judge.sh"
+    "tests/smoke/a07-task-run.sh"
+    "tests/smoke/a08-task-retry.sh"
+    "tests/smoke/a09-eval-show.sh"
+    "tests/smoke/a10-eval-run.sh"
     "tests/smoke/roundtrip.sh"
     "tests/smoke/strict-parse.sh"
     "tests/smoke/project-inference.sh"
     "tests/smoke/ast-lint.sh"
+    "tests/smoke/role-alignment.sh"
   )
 elif [ "$MODE" = "fault" ]; then
   TESTS=(

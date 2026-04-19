@@ -30,12 +30,14 @@ class Eval:
     # shell
     run: str | None = None
     script: str | None = None
-    timeout_sec: int = 120
+    # Per-instance override; `None` means "use cfg.eval_shell_timeout_sec" at runtime.
+    timeout_sec: int | None = None
 
     # judge
     prompt: str | None = None
     prompt_file: str | None = None
-    judge_model: str = "claude-sonnet-4-6"
+    # Per-instance override; `None` means "use cfg.judge_model" at runtime.
+    judge_model: str | None = None
     rounds: int = 1
 
     # metric (deferred execution; shape encoded now)
@@ -95,14 +97,14 @@ class Eval:
                     d["run"] = self.run
                 if self.script is not None:
                     d["script"] = self.script
-                if self.timeout_sec != 120:
+                if self.timeout_sec is not None:
                     d["timeout_sec"] = self.timeout_sec
             case "judge":
                 if self.prompt is not None:
                     d["prompt"] = self.prompt
                 if self.prompt_file is not None:
                     d["prompt_file"] = self.prompt_file
-                if self.judge_model != "claude-sonnet-4-6":
+                if self.judge_model is not None:
                     d["judge_model"] = self.judge_model
                 if self.rounds != 1:
                     d["rounds"] = self.rounds
@@ -255,7 +257,6 @@ def _iso(dt: datetime) -> str:
 
 
 _SCORE_RE = re.compile(r"SCORE:\s*(\d+(?:\.\d+)?)")
-_MAX_JUDGE_PARSE_RETRIES = 2
 
 
 async def run_eval(eval_def: Eval, ref: EvalRef, ctx: EvalContext) -> EvalRun:
@@ -352,6 +353,21 @@ async def _run_shell(
     # build tools expect to execute. `entity_dir` is used only for resolving
     # relative `script` paths (above).
     run_cwd = ctx.payload.get("project_root") or _entity_dir(ctx)
+    # Resolve timeout: per-instance override wins, else fall back to cfg default.
+    cfg = ctx.payload.get("cfg")
+    if eval_def.timeout_sec is not None:
+        timeout = eval_def.timeout_sec
+    elif cfg is not None:
+        timeout = cfg.eval_shell_timeout_sec
+    else:
+        raise ValidationError(
+            entity_type="eval",
+            entity_id=None,
+            field="ctx.payload.cfg",
+            reason=(
+                "shell eval requires AutopilotConfig in ctx.payload['cfg'] when timeout_sec unset"
+            ),
+        )
     proc = await asyncio.create_subprocess_shell(
         cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -359,11 +375,11 @@ async def _run_shell(
         cwd=str(run_cwd),
     )
     try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=eval_def.timeout_sec)
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
         proc.kill()
         await proc.wait()
-        return ("failed", None, f"eval timed out after {eval_def.timeout_sec}s", 0.0)
+        return ("failed", None, f"eval timed out after {timeout}s", 0.0)
 
     output = (stdout or b"").decode("utf-8", errors="replace")
     status: Literal["passed", "failed"] = "passed" if proc.returncode == 0 else "failed"
@@ -380,13 +396,6 @@ async def _run_judge(
     Pass rule (Phase 1): average >= 0.5. Threshold calibration is a Frink concern
     (design §5.5, principle 9).
     """
-    worker_model = ctx.payload.get("worker_model")
-    if worker_model and eval_def.judge_model == worker_model:
-        raise JudgeModelCollision(
-            judge_model=eval_def.judge_model,
-            worker_model=str(worker_model),
-        )
-
     cfg = ctx.payload.get("cfg")
     if cfg is None:
         raise ValidationError(
@@ -394,6 +403,17 @@ async def _run_judge(
             entity_id=None,
             field="ctx.payload.cfg",
             reason="judge eval requires AutopilotConfig in ctx.payload['cfg']",
+        )
+
+    # Resolve judge model: per-instance override wins, else fall back to cfg default.
+    resolved_judge_model = (
+        eval_def.judge_model if eval_def.judge_model is not None else cfg.judge_model
+    )
+    worker_model = ctx.payload.get("worker_model")
+    if worker_model and resolved_judge_model == worker_model:
+        raise JudgeModelCollision(
+            judge_model=resolved_judge_model,
+            worker_model=str(worker_model),
         )
 
     # Resolve prompt text.
@@ -431,7 +451,7 @@ async def _run_judge(
         attempt_cost = 0.0
         parse_ok = False
         last_err: str | None = None
-        for attempt in range(_MAX_JUDGE_PARSE_RETRIES + 1):
+        for attempt in range(cfg.max_judge_parse_retries + 1):
             result = await run_agent("judge", prompt_text, cfg)
             attempt_cost = result.cost_usd
             total_cost += attempt_cost

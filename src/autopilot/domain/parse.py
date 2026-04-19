@@ -250,21 +250,32 @@ def parse_sprint(
     task_texts: list[str],
     sprint_path: Path | None = None,
     task_paths: list[Path] | None = None,
+    *,
+    expected_id: str | None = None,
+    expected_primary_goal: str | None = None,
 ) -> Sprint:
+    # Orchestrator is authoritative for sprint id and primary_goal; planner
+    # frontmatter is a hint, overridable at parse time so the final Sprint is
+    # constructed with the authoritative values (§5: validate on mutate — no
+    # post-construction patching of required fields).
     fm, body = _split_frontmatter(sprint_text, sprint_path)
     _check_keys(fm, _SPRINT_KEYS, sprint_path)
-    sprint_id = _require(fm, "id", sprint_path)
-    primary_goal = _require(fm, "primary_goal", sprint_path)
+    fm_sprint_id = _require(fm, "id", sprint_path)
+    fm_primary_goal = _require(fm, "primary_goal", sprint_path)
     _require(fm, "status", sprint_path)
+    sprint_id = expected_id if expected_id is not None else str(fm_sprint_id)
+    primary_goal = (
+        expected_primary_goal if expected_primary_goal is not None else str(fm_primary_goal)
+    )
     if task_paths is not None and len(task_paths) != len(task_texts):
         raise ValueError("task_paths length must match task_texts length")
     tasks: list[Task] = []
     for i, t_text in enumerate(task_texts):
         tp = task_paths[i] if task_paths else None
-        tasks.append(parse_task(t_text, sprint_id=str(sprint_id), path=tp))
+        tasks.append(parse_task(t_text, sprint_id=sprint_id, path=tp))
     return Sprint(
-        id=str(sprint_id),
-        primary_goal=str(primary_goal),
+        id=sprint_id,
+        primary_goal=primary_goal,
         context=body,
         tasks=tasks,
         status=fm["status"],

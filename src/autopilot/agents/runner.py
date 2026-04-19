@@ -218,7 +218,8 @@ async def run_agent(
     output_parts: list[str] = []
     total_cost = 0.0
 
-    try:
+    async def _drain() -> None:
+        nonlocal total_cost
         async for message in query(prompt=prompt, options=options):
             if hasattr(message, "content"):
                 for block in message.content:
@@ -226,6 +227,26 @@ async def run_agent(
                         output_parts.append(block.text)
             if hasattr(message, "cost_usd"):
                 total_cost = message.cost_usd or 0.0
+
+    try:
+        await asyncio.wait_for(_drain(), timeout=cfg.agent_call_timeout_sec)
+    except TimeoutError:
+        duration_ms = int((time.monotonic() - start) * 1000)
+        emit(
+            "agent.call.end",
+            role=role,
+            run_id=run_id,
+            cost_usd=total_cost,
+            duration_ms=duration_ms,
+            status="error",
+            **{"error.type": "TimeoutError", "error.message": "agent call timed out"},
+        )
+        return AgentResult(
+            success=False,
+            output="\n".join(output_parts),
+            cost_usd=total_cost,
+            error="agent call timed out",
+        )
     except Exception as e:
         duration_ms = int((time.monotonic() - start) * 1000)
         emit(
