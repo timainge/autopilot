@@ -1,111 +1,71 @@
-"""Global and per-project configuration via TOML files."""
-
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
-from .log import log
-
-GLOBAL_CONFIG_PATH = Path("~/.config/autopilot/config.toml")
-PROJECT_CONFIG_FILENAME = "autopilot.toml"
-
-_DEFAULTS: dict = {
-    "scan_root": None,
-    "git_user": None,
-    "dev_dir": ".dev",
-    "summary_filename": "project-summary.md",
-    "roadmap_filename": "roadmap.md",
-    "portfolio_filename": "portfolio.md",
-    "max_budget_usd": 5.0,
-    "max_task_attempts": 3,
-    "runbooks_path": None,
-    "sprint_filename": "sprint.md",
-    "sprint_log_filename": "sprint-log.md",
-    "max_sprints": 10,
-}
+from autopilot.domain.errors import ConfigError
 
 
-@dataclass
+@dataclass(frozen=True)
 class AutopilotConfig:
-    scan_root: str | None = None
-    git_user: str | None = None
-    dev_dir: str = ".dev"
-    summary_filename: str = "project-summary.md"
-    roadmap_filename: str = "roadmap.md"
-    portfolio_filename: str = "portfolio.md"
-    max_budget_usd: float = 5.0
-    max_task_attempts: int = 3
-    runbooks_path: str | None = None
-    sprint_filename: str = "sprint.md"
-    sprint_log_filename: str = "sprint-log.md"
+    # Retry + loop caps
+    max_task_attempts: int = 2
+    max_judge_rounds: int = 2
+    max_judge_parse_retries: int = 2
     max_sprints: int = 10
+    max_parallel: int = 1
 
-    def summary_path(self, project: Path) -> Path:
-        return project / self.dev_dir / self.summary_filename
+    # Truncation knobs — operator-visible limits on how much text is carried
+    # through into stored summaries / reasoning / prompts.
+    task_output_summary_chars: int = 500
+    verdict_reasoning_max_chars: int = 2000
+    verdict_summary_max_chars: int = 500
 
-    def roadmap_path(self, project: Path) -> Path:
-        return project / self.dev_dir / self.roadmap_filename
+    # Timeouts
+    eval_shell_timeout_sec: int = 120
+    agent_call_timeout_sec: int = 600
 
-    def portfolio_path(self, scan_dir: Path) -> Path:
-        return scan_dir / self.dev_dir / self.portfolio_filename
+    # Models
+    worker_model: str = "claude-sonnet-4-6"
+    planner_model: str = "claude-opus-4-7"
+    critic_model: str = "claude-sonnet-4-6"
+    judge_model: str = "claude-sonnet-4-6"
+    evaluator_model: str = "claude-sonnet-4-6"
+    researcher_model: str = "claude-sonnet-4-6"
+    roadmap_writer_model: str = "claude-opus-4-7"
 
-    def sprint_path(self, project: Path) -> Path:
-        return project / self.dev_dir / self.sprint_filename
+    # Budget
+    max_cost_per_call_usd: float = 2.00
+    max_cost_per_run_usd: float = 50.00
 
-    def sprint_log_path(self, project: Path) -> Path:
-        return project / self.dev_dir / self.sprint_log_filename
-
-    def resolve_runbooks_path(self) -> Path | None:
-        """Return the configured runbooks dir if it exists, else None."""
-        if self.runbooks_path:
-            p = Path(self.runbooks_path).expanduser()
-            if p.exists():
-                return p
-        return None
-
-    def archetypes_index_path(self) -> Path | None:
-        p = self.resolve_runbooks_path()
-        if p:
-            idx = p / "archetypes.yaml"
-            if idx.exists():
-                return idx
-        return None
+    # Paths (computed post-resolution, not user-set)
+    project_root: Path = field(default_factory=Path.cwd)
 
 
-def _load_toml(path: Path, warn_on_error: bool = False) -> dict:
-    """Load a TOML file and return its contents as a dict.
-
-    Returns an empty dict if the file doesn't exist or cannot be read.
-    Logs a warning (when warn_on_error=True) if the file is malformed.
-    """
-    try:
-        p = path.expanduser().resolve()
-        if not p.exists():
-            return {}
-        with open(p, "rb") as f:
-            return tomllib.load(f)
-    except tomllib.TOMLDecodeError:
-        if warn_on_error:
-            log("config", f"Malformed config file: {path} — using defaults", "⚠️")
-        return {}
-    except Exception:
-        return {}
-
-
-def load_config(project_path: Path | str | None = None) -> AutopilotConfig:
-    """Load merged config: defaults → global → per-project → (CLI handled by caller)."""
-    if isinstance(project_path, str):
-        project_path = Path(project_path)
-
-    merged = dict(_DEFAULTS)
-
-    # Global config: warn if malformed (user explicitly created it)
-    global_data = _load_toml(GLOBAL_CONFIG_PATH, warn_on_error=True)
-    merged.update({k: v for k, v in global_data.items() if k in merged})
-
-    # Per-project config: silent if missing
-    if project_path is not None:
-        project_data = _load_toml(project_path / PROJECT_CONFIG_FILENAME)
-        merged.update({k: v for k, v in project_data.items() if k in merged})
-
-    return AutopilotConfig(**merged)
+def load_config(project_root: Path | None = None) -> AutopilotConfig:
+    """Layer config: defaults < ~/.config/autopilot/config.toml < <project>/.dev/autopilot.toml."""
+    root = project_root if project_root is not None else Path.cwd()
+    known = {f.name for f in fields(AutopilotConfig)}
+    merged: dict[str, object] = {}
+    for path in [
+        Path.home() / ".config" / "autopilot" / "config.toml",
+        root / ".dev" / "autopilot.toml",
+    ]:
+        if not path.exists():
+            continue
+        try:
+            data = tomllib.loads(path.read_text(encoding="utf-8"))
+        except tomllib.TOMLDecodeError as e:
+            raise ConfigError(source=str(path), reason=f"invalid TOML: {e}") from e
+        unknown = set(data) - known
+        if unknown:
+            raise ConfigError(
+                source=str(path),
+                reason=f"unknown config keys: {sorted(unknown)}",
+            )
+        if "project_root" in data:
+            raise ConfigError(
+                source=str(path),
+                reason="project_root is not user-settable",
+            )
+        merged.update(data)
+    return AutopilotConfig(project_root=root, **merged)

@@ -1,93 +1,130 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working with this repository.
+Guidance for Claude Code working in this repository.
+
+---
 
 ## Project Overview
 
-Autopilot is an autonomous project session orchestrator for Claude Code. It reads project manifests (`.dev/sprint.md`), evaluates readiness via an LLM judge, and executes tasks sequentially through the Anthropic Agent SDK. It automates the outer loop of hobby project development — you write the plan, autopilot runs it.
+Autopilot is an autonomous project session orchestrator for Claude Code. It
+reads a project's roadmap, plans a sprint against the next goal, executes the
+sprint through the Claude Agent SDK, and loops until goals are achieved. The
+filesystem under `.dev/` is live, ambient state: it reflects what is planned,
+in progress, succeeded, or failed at any moment.
 
-## Architecture
+Domain hierarchy: `Roadmap → Goals → Sprints → Tasks`. Full model in
+`design.md`.
 
-Single Python package at `src/autopilot/`. Key modules:
+---
 
-| Module | Responsibility |
-|--------|---------------|
-| `cli.py` | Argparse CLI, project discovery, fork-filtering, async entry point |
-| `orchestrator.py` | All agent pipelines: judge/worker/planner/researcher/portfolio/roadmap/ralph |
-| `manifest.py` | Parse/load/write manifests, task dependency resolution, agent config loading, runbook I/O, sprint log I/O |
-| `prompts.py` | Prompt builders for all agent roles; judge verdict parsing |
-| `agent.py` | Thin wrapper around `claude_agent_sdk.query()` — streams messages, tracks cost, names sessions |
-| `models.py` | Dataclasses: `Task`, `Manifest`, `AgentConfig`, `AgentResult`, `SprintResult` |
-| `config.py` | `AutopilotConfig` dataclass with v2 fields; `load_config()` from TOML |
-| `log.py` | Timestamped status logging |
+## Status
 
-**Agent role configs** live in `src/autopilot/agents/*.md` — markdown files with YAML frontmatter defining system prompts, allowed tools, budget, and permission mode for each role: `judge`, `worker`, `planner`, `critic`, `researcher`, `portfolio`, `roadmap`, `roadmap-evaluate`, `deep-researcher`.
+Phase 1 (domain model refactor) is implementation-complete. Smoke + fault
+suites green. Phase 2 closes remaining gaps (structural judge pass, CLI
+atomic commands, role alignment) before `phase-1-refactor` merges to `main`.
+See `.dev/phase-2.md` for active work, `.dev/phase-3.md` for deferred
+directions.
 
-**Bundled runbooks** live in `src/autopilot/runbooks/*.md` — markdown reference docs loaded at runtime via `load_runbook(archetype, cfg)`. The `python-cli` runbook ships with the package. Custom runbooks can be added to a project-local `runbooks/` directory (configured via `AutopilotConfig.runbooks_dir`).
+---
 
-## Core Pipeline
+## Authoritative Docs
 
-**`sprint`** (`orchestrator.py: execute_sprint()`): Executes an approved `.dev/sprint.md` — loops through pending tasks sequentially. Each task: spawn worker agent → verify marked done → retry on failure up to `max_task_attempts`. Pass `--auto-approve` to bypass the approval check. Pass `--resume` to reset stuck projects and retry failed tasks.
+Read in order. Each is canonical for its scope.
 
-**`build`** (`orchestrator.py: build_project()`): One-shot workflow: runs `plan` then `sprint`. Equivalent to `autopilot plan . && autopilot sprint --auto-approve .`. Pass `--context <file>` to seed the planner.
+1. `.dev/vision-index.md` — reading-order router. Start here.
+2. `.dev/design.md` — implementation design. The contract.
+3. `.dev/workflows.md` — CLI surface, entity lifecycle, loop composition.
+4. `.dev/vision.md` — authoritative design intent.
+5. `.dev/vision-testing.md` — the three correctness layers (smoke / fault /
+   judge).
+6. `.dev/smoke-tests.md` — the tests the refactor passed to merge.
+7. `.dev/phase-2.md` — active next-steps.
+8. `.dev/phase-3.md` — deferred directions; do not ship from this doc.
 
-**`plan`**: Lazily runs roadmap agent if `.dev/roadmap.md` doesn't exist, then runs the planner agent to write `.dev/sprint.md`. The critic agent always runs if its config exists, followed by a judge loop (up to 2 rounds) that evaluates the plan and revises if needed. On judge READY, sets `approved: true` in sprint.md. Pass `--context <file>` to skip lazy research and seed the planner directly.
+Undocumented design decisions are a bug. If the docs are unclear, ask or
+update them — do not guess.
 
-**`roadmap`**: Runs roadmap agent → writes `.dev/roadmap.md` with `goal:`, `archetype:`, and `validate:` frontmatter plus shipping steps. Uses research summary if available. The roadmap is the authoritative goal+validate artifact. Pass `--deep` to run deep research first. Pass `--topic "question"` or `--topic-file brief.md` to run topic research (writes `.dev/research/{slug}/report.md`, no roadmap written).
+---
 
-**`ralph`** (`orchestrator.py: ralph_project()`): Outer loop: `(plan → sprint → evaluate) × N` until GOAL_MET or stuck. Requires `.dev/roadmap.md`. Each iteration calls `plan_project()` (planner + critic + judge), `execute_sprint()` (worker loop), `run_validation_hooks()`, and `evaluate_project()`. If tasks fail, appends a deferred investigation task to `roadmap.md` and stops. Loops until `goal_met=True` or `max_sprints` reached.
+## Archive Policy
 
-**`portfolio`**: Runs portfolio agent across all discovered projects → writes `<scan_dir>/.dev/portfolio.md`. Requires `--scan` or explicit paths. Auto-generates `.dev/roadmap.md` for any project that lacks one before building the portfolio (uses deep research if no existing research artifacts). The portfolio agent uses `roadmap.md` as its primary input per project.
+`.archive/autopilot/` holds the pre-refactor implementation and is
+**reference-only**.
 
-## Key Patterns
+- Do not import from it. `from autopilot.archive...` is forbidden — the
+  firewall is physical (archive is outside the package path).
+- Do not copy patterns from it. Read the authoritative docs to understand
+  the target. Consult `.archive/` only to answer a specific behavioural
+  question the docs don't cover — and state the question, not the
+  conclusion.
+- Do not treat it as a fallback. If a design doc is silent, ask or edit
+  the doc.
 
-- **Manifest format**: YAML frontmatter + markdown checkboxes at `.dev/sprint.md`. Task metadata persisted inline: `[id: foo]`, `[depends: bar]`, `[attempts: 2]`, `[status: failed]`, `[error: ...]`.
-- **Session naming**: Every `run_agent()` call sets `extra_args={"session-name": "autopilot/{project}/{role}"}` so sessions appear distinctively in Claude Code's `/resume` history.
-- **Project discovery**: `discover_projects()` finds dirs with `.dev/sprint.md`; `discover_all_projects()` finds any project-like dir (git, package.json, pyproject.toml, etc.).
-- **Fork filtering**: In scan mode, non-owned repos are skipped by comparing git remote owner to detected user (`AUTOPILOT_GIT_USER` env → `git config autopilot.user` → `gh api user`). Use `--all` to disable.
-- **Default cwd**: When no path arg is provided, autopilot defaults to the current directory for all modes.
+---
 
-## .dev Convention
+## Forward-Change Posture
 
-All autopilot working files within a project live under `.dev/` (which should be in `.gitignore`):
-- `.dev/sprint.md` — task manifest (`plan` output); used by `sprint` for worker loop
-- `.dev/roadmap.md` — roadmap agent output; contains `goal:`, `archetype:`, and `validate:` frontmatter; used by `sprint` as the goal + validate definition
-- `.dev/sprint-log.md` — sprint history, append-only, feeds planner context each sprint
-- `.dev/project-summary.md` — researcher agent output
-- `<scan_dir>/.dev/portfolio.md` — portfolio agent output
+No backwards compatibility constraints today. Breaking changes are the
+default until there's a first external user — none yet.
+
+- No migration shims, no compatibility wrappers, no deprecation paths.
+- Do not preserve a field name / file layout / CLI flag out of loyalty to
+  any prior shape. If it's wrong, break it.
+- Once a first external user exists, breaking changes go in release notes
+  with a minor-version bump. Still no shims.
+
+---
 
 ## Development Commands
 
 ```bash
-uv pip install -e .                          # Install (editable)
-autopilot sprint .                           # Execute approved sprint plan
-autopilot sprint --auto-approve .            # Execute, bypassing approval check
-autopilot sprint --resume .                  # Reset stuck projects and retry
-autopilot build .                            # Plan then execute (one-shot)
-autopilot build --context spec.md .          # Plan with context, then execute
-autopilot plan .                             # Generate/improve manifest (plan + critic + judge)
-autopilot roadmap .                          # Build shipping roadmap (goal + validate)
-autopilot roadmap --deep .                   # Deep research then build roadmap
-autopilot roadmap --topic "question" .       # Research a specific topic
-autopilot ralph .                            # Outer loop until goal met or stuck
-autopilot sprint --scan ~/Projects           # Auto-discover and process all projects
-uv run ruff check src/                      # Lint
-uv run ruff format --check src/             # Format check
+uv pip install -e .                     # editable install
+uv run autopilot --help                 # smoke the CLI
+uv run ruff check src/                  # lint
+uv run ruff format --check src/         # format check
+tests/smoke/run.sh                      # default smoke suite (S1–S5 + lint)
+tests/smoke/run.sh fault                # fault injection (F1–F3)
 ```
 
-There are no tests yet (smoke tests planned before v0.1.0 release — see `.dev/plans/01-naming.md`).
+Smoke tests are the primary correctness signal (per `vision-testing.md`).
+Unit tests have a small, narrow role at the serialization boundary — do not
+drive design from them.
+
+---
 
 ## Code Style
 
-- Python 3.11+, async/await throughout
-- Ruff linter: line length 100, rules `E, F, I, N, W, UP`
-- Dataclasses (not Pydantic)
-- Type hints with `X | None` union syntax (not `Optional`)
+- Python 3.11+, async/await throughout.
+- Ruff: line length 100, rules `E, F, I, N, W, UP`.
+- Dataclasses (not Pydantic).
+- Type hints with `X | None` union syntax (not `Optional`).
+- No docstrings on trivial methods. One-line docstrings on non-obvious
+  ones. No multi-paragraph docstrings. Comments are for WHY-non-obvious
+  only.
+- Active record: entities own their persistence via `@persists`. No free-
+  function `save_task(task)`. No repository layer.
+- Validate on mutate: invariants in `__post_init__` and mutation methods.
+  No separate `validate()`. No fixup passes.
+- Tunables live in `AutopilotConfig` (see `design.md §12.13`). Literals in
+  call sites are bugs.
+- Paths are `pathlib.Path`. File I/O specifies `encoding="utf-8"`.
 
-## Documentation
+---
 
-When adding or changing features that affect CLI usage, agent roles, or the manifest format, update `README.md`. The README is the primary user-facing documentation.
+## Branch Strategy
 
-Release plans and post-MVP features tracked in `.dev/roadmap.md` and `.dev/plans/`.
+- Active work: `phase-1-refactor` (pending Phase 2 completion + merge to
+  `main`).
+- After merge: `main` is authoritative; feature branches off `main`.
+- Merge gate to `main`: `phase-2.md §3` — smoke green, fault green,
+  structural judge ALIGNED on all principles, CLI atomics complete, role
+  alignment lint green.
 
-Architecture and design vision docs live in `.dev/vision*.md`. The index is at `.dev/vision-index.md`. These cover the domain model refactor, eval framework, Frink harness, sandbox execution, and other post-Phase-1 directions. Read the relevant vision doc before implementing any feature they describe.
+---
+
+## When In Doubt
+
+Ask. The cost of a clarifying question is small; the cost of a guess that
+encodes the wrong assumption is large. Pause and check rather than
+proceeding on an unstated assumption — especially when the design docs are
+silent, or when archive behaviour seems to conflict with the target.
