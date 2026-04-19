@@ -1,6 +1,9 @@
 # Autopilot local dev/orchestration state
 .dev/
 
+# Archived pre-refactor artefacts (reference only, not code)
+.archive/
+
 # MkDocs build output
 docs/site/
 
