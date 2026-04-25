@@ -6,6 +6,7 @@ from pathlib import Path
 
 import yaml
 
+from autopilot.domain.clock import now
 from autopilot.domain.goal import Goal
 from autopilot.domain.roadmap import Roadmap
 from autopilot.domain.sprint import Sprint
@@ -13,6 +14,37 @@ from autopilot.domain.task import AttemptRecord, Task
 
 # How much task-intent text to include in prompt summary lines.
 _INTENT_SNIPPET_CHARS = 120
+
+
+def _workspace_preamble(cwd: Path, archetype: str | None = None) -> str:
+    """Workspace grounding for an agent — runtime-aware.
+
+    Tells the agent where it is on disk, what date it is, what archetype
+    the project belongs to (when known), and constrains shell file
+    discovery to the project tree. Solves the failure mode observed in
+    cadence-smoke-run1 where a worker ran `find /` from filesystem root
+    and hung 14+ minutes scanning Spotlight + /System.
+
+    The SDK already sets the subprocess cwd correctly; this preamble
+    surfaces that fact to the agent's prompt, which is what the model
+    actually reads.
+    """
+    today = now().date().isoformat()
+    archetype_line = f"Archetype: {archetype}\n" if archetype else ""
+    return (
+        "## Workspace\n\n"
+        f"Working directory: `{cwd}`\n"
+        "This is the project root — every relative path resolves from here.\n"
+        f"Today's date: {today}\n"
+        f"{archetype_line}"
+        "\n"
+        "Stay inside this directory. Use `Glob` for file discovery (e.g. "
+        "`**/*.py`); if you must use shell `find`, scope it to `.` (e.g. "
+        "`find . -path '*/main.py'`). Never search `/`, `/System`, "
+        "`/Applications`, or absolute paths outside the project — those "
+        "scans take minutes on macOS / Linux (Spotlight, network mounts) "
+        "and will time the sprint out."
+    )
 
 # Task scope integrity — verbatim from `.dev/vision.md §Task Scope Integrity`.
 # This is prompt-level protection (permission-level backstop is a follow-up).
@@ -37,13 +69,18 @@ def build_worker_prompt(
     task: Task,
     sprint: Sprint,
     prior_attempts: list[AttemptRecord],
+    cwd: Path,
+    archetype: str | None = None,
 ) -> str:
-    """Worker prompt: task intent + sprint context + task scope integrity + prior errors.
+    """Worker prompt: workspace grounding + task intent + sprint context +
+    task scope integrity + prior errors.
 
     Per design §9: retry prompt format (multi-line with blank separator) is preserved
     from the archived implementation.
     """
     sections: list[str] = [
+        _workspace_preamble(cwd, archetype=archetype),
+        "",
         "You are executing a single task from the current sprint.",
         "",
         f"Sprint: {sprint.id} (primary goal: {sprint.primary_goal})",

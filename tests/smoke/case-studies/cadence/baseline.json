@@ -1,0 +1,11 @@
+{
+  "captured_at": "2026-04-24T23:45:41Z",
+  "autopilot_ref": "120d073-pre-phase3-with-worker-find-fix",
+  "ralph_exit": 0,
+  "wall_clock_sec": 1106,
+  "cost_usd": 0.0,
+  "sprint_count": 3,
+  "goals_met": ["list-items", "create-item", "get-item"],
+  "task_count": 9,
+  "notes": "First passing baseline. Captured from cadence-smoke-run2 after worker.md `find /` fix landed. 3 sprints, 9 tasks, all goals achieved (RalphOutcome=goals_met). cost_usd=0 because cost extraction from claude_agent_sdk message stream is currently broken (separate bug; agents/runner.py line 228 — `message.cost_usd` attribute likely renamed in newer SDK). Recapture after fixing cost extraction or after Phase 3 lands. Delete this file and re-run smoke with PASSING outcome to recapture."
+}

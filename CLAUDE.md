@@ -19,11 +19,15 @@ Domain hierarchy: `Roadmap → Goals → Sprints → Tasks`. Full model in
 
 ## Status
 
-Phase 1 (domain model refactor) is implementation-complete. Smoke + fault
-suites green. Phase 2 closes remaining gaps (structural judge pass, CLI
-atomic commands, role alignment) before `phase-1-refactor` merges to `main`.
-See `.dev/phase-2.md` for active work, `.dev/phase-3.md` for deferred
-directions.
+Phases 1 + 2 complete and merged to `main`. Domain model refactor, CLI
+atomic commands, structural judge pass (all seven code-facing principles
+ALIGNED), and role-alignment lint are all landed. Smoke (S1–S5 + A01–A10),
+fault (F1–F3), role-alignment, and ast-lint suites are green.
+
+Active work: `.dev/phase-3-evals.md` (signal floor — driven by the
+notes-app real-smoke dossier). Phase 4 (archetypes) and Phase 5 (Lisa +
+Frink + additional domain models) follow. `.dev/phase-2.md` is retained
+as a historical record of the merge-gate work.
 
 ---
 
@@ -31,18 +35,28 @@ directions.
 
 Read in order. Each is canonical for its scope.
 
-1. `.dev/vision-index.md` — reading-order router. Start here.
-2. `.dev/design.md` — implementation design. The contract.
+1. `.dev/vision-index.md` — reading-order router over the consolidated
+   topic files. **Start here.** Most entries currently carry a
+   `[FOR APPROVAL]` marker pending a review pass on the April 2026
+   consolidation.
+2. `.dev/design.md` — implementation contract.
 3. `.dev/workflows.md` — CLI surface, entity lifecycle, loop composition.
-4. `.dev/vision.md` — authoritative design intent.
-5. `.dev/vision-testing.md` — the three correctness layers (smoke / fault /
-   judge).
-6. `.dev/smoke-tests.md` — the tests the refactor passed to merge.
-7. `.dev/phase-2.md` — active next-steps.
-8. `.dev/phase-3.md` — deferred directions; do not ship from this doc.
+4. `.dev/smoke-tests.md` — tests the Phase 1 refactor passed to merge.
+5. `.dev/phase-3-evals.md` — **active**: signal floor (goal-sanity rubrics,
+   sprint inspection, scope-drift eval).
+6. `.dev/phase-4-archetypes.md` — next after Phase 3.
+7. `.dev/phase-5-lisa.md` / `.dev/phase-5-frink.md` /
+   `.dev/phase-5-additional-domain-models.md` — outer loops +
+   optional knowledge-entity domain.
+8. `.dev/backlog.md` — deferred one-liners; not plannable without
+   promotion.
+9. `.dev/phase-2.md` — historical record of the merge-gate work; do not
+   reopen, do not plan from.
 
 Undocumented design decisions are a bug. If the docs are unclear, ask or
-update them — do not guess.
+update them — do not guess. Never plan from an archived doc under
+`.archive/.dev/`; the consolidated topic files above are the source of
+truth.
 
 ---
 
@@ -82,8 +96,9 @@ uv pip install -e .                     # editable install
 uv run autopilot --help                 # smoke the CLI
 uv run ruff check src/                  # lint
 uv run ruff format --check src/         # format check
-tests/smoke/run.sh                      # default smoke suite (S1–S5 + lint)
+tests/smoke/run.sh                      # default suite (S1–S5, A01–A10, role-alignment, ast-lint)
 tests/smoke/run.sh fault                # fault injection (F1–F3)
+uv run pytest tests/                    # serialization-boundary unit tests (e.g. ref parser)
 ```
 
 Smoke tests are the primary correctness signal (per `vision-testing.md`).
@@ -113,12 +128,11 @@ drive design from them.
 
 ## Branch Strategy
 
-- Active work: `phase-1-refactor` (pending Phase 2 completion + merge to
-  `main`).
-- After merge: `main` is authoritative; feature branches off `main`.
-- Merge gate to `main`: `phase-2.md §3` — smoke green, fault green,
-  structural judge ALIGNED on all principles, CLI atomics complete, role
-  alignment lint green.
+- `main` is authoritative. Feature branches off `main`.
+- Merge gate for any branch back to `main`: full smoke suite green, fault
+  suite green, role-alignment lint green, ruff clean. Structural judge
+  re-run required only when changes touch principle-bearing surfaces
+  (persistence, mutation, config tunables, role files).
 
 ---
 

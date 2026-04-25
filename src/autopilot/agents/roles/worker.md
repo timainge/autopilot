@@ -30,6 +30,13 @@ You have full access to the project's files and can run commands.
 2. **Explore**: Read relevant source files to understand the current state.
    Use `Glob` and `Grep` to find related code. Don't assume — verify what exists.
 
+   **File discovery — important**: prefer `Glob` (e.g. `**/main.py`) over
+   shell `find`. If you must use `find`, search **only the project tree
+   from cwd** (`find . -path '*/main.py'`) — never `find /` or any path
+   outside the project. Filesystem-root scans on macOS / Linux can take
+   many minutes (Spotlight, /System, network mounts) and will time the
+   sprint out.
+
 3. **Implement**: Make the changes needed for your specific task. Write clean,
    well-structured code that follows the project's existing conventions.
 

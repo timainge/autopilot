@@ -73,7 +73,7 @@ async def run_task(
 
         result = await run_agent(
             "worker",
-            build_worker_prompt(task, sprint, prior_attempts),
+            build_worker_prompt(task, sprint, prior_attempts, cwd=project),
             cfg,
             cwd=project,
         )

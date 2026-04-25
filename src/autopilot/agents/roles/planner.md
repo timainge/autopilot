@@ -150,6 +150,30 @@ Each task should:
 Let scope dictate task count, not a target. Split unrelated changes; merge
 trivially-small splits.
 
+## Shipping conventions
+
+If the project is an **app** (not a library) — the roadmap archetype is one
+of `tauri`, `fastapi`, `react`, `vue3`, `mcp-server`, `supabase`, or any
+archetype whose shipping target is a running process a user launches — the
+plan covering the **final** goal in the roadmap must include a task that
+rewrites `README.md` with, at minimum:
+
+- What the project is (one sentence).
+- The exact local-run command (e.g. `npm run tauri dev`,
+  `uv run uvicorn app.main:app`, `cargo run`).
+- Any non-obvious first-run UX state a user has to navigate on their own —
+  e.g. "click *Choose Directory* and enter a path", required env vars,
+  required external services. If a piece of UX would trip a first-time user,
+  it goes here.
+- Platform prerequisites only if non-trivial (e.g. `webkit2gtk` on Linux).
+
+Do **not** leave a stock scaffolder README (`Tauri + Vanilla`,
+`create-react-app`, etc.) in place on a completed app. A user opening the
+finished repo should be able to run it without reading the codebase.
+
+This rule applies when planning the sprint against the roadmap's last
+pending goal. If the project has only one goal, it applies to that sprint.
+
 ## Rules
 
 - Keep tasks focused: one concern per task.
