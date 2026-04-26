@@ -245,9 +245,57 @@ def _task_index(task: Task) -> str:
     )
 
 
+def _task_yaml(task: Task) -> str:
+    """Task frontmatter YAML — mirrors the on-disk shape from `Task._save`."""
+    data = {
+        "id": task.id,
+        "depends_on": list(task.depends_on),
+        "status": task.status,
+        "eval": [e.to_dict() for e in task.eval],
+        "attempts": [
+            {
+                "started_at": a.started_at.isoformat() if a.started_at else None,
+                "completed_at": a.completed_at.isoformat() if a.completed_at else None,
+                "failed_at": a.failed_at.isoformat() if a.failed_at else None,
+                "error": a.error,
+            }
+            for a in task.attempts
+        ],
+        "summary": task.summary,
+    }
+    return yaml.safe_dump(data, sort_keys=False).rstrip()
+
+
+def _sprint_full_render(sprint: Sprint) -> str:
+    """Render the sprint+tasks manifest the way a worker sees it.
+
+    Sprint frontmatter, sprint context, then each task's frontmatter
+    plus intent body. Used by the critic and judge so they review the
+    same artefact the worker will execute against.
+    """
+    parts: list[str] = [
+        _sprint_yaml(sprint),
+        "",
+        sprint.context.strip(),
+        "",
+        "## Tasks",
+    ]
+    if not sprint.tasks:
+        parts += ["", "(no tasks)"]
+    else:
+        for task in sprint.tasks:
+            parts += [
+                "",
+                f"### Task {task.id}",
+                _task_yaml(task),
+                "",
+                task.intent.strip(),
+            ]
+    return "\n".join(parts)
+
+
 def build_critic_prompt(sprint: Sprint, goal: Goal) -> str:
     """Critic prompt: review a sprint draft against the target goal."""
-    task_lines = [_task_index(t) for t in sprint.tasks]
     sections = [
         "Review this sprint draft against its target goal. Your job is to identify",
         "what the plan missed — gaps, ambiguities, missing DoD, ordering issues,",
@@ -255,9 +303,7 @@ def build_critic_prompt(sprint: Sprint, goal: Goal) -> str:
         "",
         _fence("TARGET GOAL", f"{_goal_yaml(goal)}\n\n{goal.intent.strip()}"),
         "",
-        _fence("SPRINT DRAFT", f"{_sprint_yaml(sprint)}\n\n{sprint.context.strip()}"),
-        "",
-        _fence("TASK LIST", "\n".join(task_lines) if task_lines else "(no tasks)"),
+        _fence("SPRINT MANIFEST", _sprint_full_render(sprint)),
         "",
         "Be specific. Vague concerns ('needs more detail') do not improve the plan.",
     ]
@@ -266,16 +312,13 @@ def build_critic_prompt(sprint: Sprint, goal: Goal) -> str:
 
 def build_judge_prompt(sprint: Sprint, goal: Goal, critic_notes: str) -> str:
     """Judge prompt: approve or reject a sprint given critic notes."""
-    task_lines = [_task_index(t) for t in sprint.tasks]
     sections = [
         "Judge whether this sprint is ready for autonomous execution against its goal.",
         "Read the sprint draft, the target goal, and the critic's notes, then decide.",
         "",
         _fence("TARGET GOAL", f"{_goal_yaml(goal)}\n\n{goal.intent.strip()}"),
         "",
-        _fence("SPRINT DRAFT", f"{_sprint_yaml(sprint)}\n\n{sprint.context.strip()}"),
-        "",
-        _fence("TASK LIST", "\n".join(task_lines) if task_lines else "(no tasks)"),
+        _fence("SPRINT MANIFEST", _sprint_full_render(sprint)),
         "",
         _fence("CRITIC NOTES", critic_notes.strip() or "(no critic notes)"),
         "",
