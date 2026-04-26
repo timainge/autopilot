@@ -9,6 +9,7 @@ from typing import Any
 from autopilot.agents.prompts import build_evaluator_prompt
 from autopilot.agents.runner import run_agent
 from autopilot.config import AutopilotConfig
+from autopilot.domain.errors import SprintEvaluatorError
 from autopilot.domain.eval import EvalContext, run_eval
 from autopilot.domain.goal import Goal
 from autopilot.domain.ids import EvalRef
@@ -22,6 +23,10 @@ class EvaluatorVerdict:
     achieved: bool
     summary: str
     reasoning: str
+    # Prose remediation guidance for the next planner when achieved=False.
+    # None when achieved=True. Sourced from evaluator output minus the marker
+    # and SUMMARY: lines, capped to cfg.verdict_reasoning_max_chars.
+    feedback: str | None = None
 
 
 def _entity_dir_for(entity: Any) -> Path:
@@ -99,6 +104,24 @@ def _parse_evaluator_verdict(text: str) -> bool | None:
     return None
 
 
+def _extract_feedback(text: str, max_chars: int) -> str | None:
+    """Body of the evaluator output minus marker and SUMMARY: lines.
+
+    Used as `EvaluatorVerdict.feedback` when achieved=False — surfaced to the
+    next planner as remediation guidance.
+    """
+    keep: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip().upper()
+        if stripped.startswith(("GOAL_MET:", "ACHIEVED:", "SUMMARY:")):
+            continue
+        keep.append(line)
+    body = "\n".join(keep).strip()
+    if not body:
+        return None
+    return body[:max_chars]
+
+
 async def sprint_evaluate(
     sprint: Sprint,
     goal: Goal,
@@ -118,17 +141,13 @@ async def sprint_evaluate(
         ref = EvalRef(entity_type="goal", entity_id=goal.id, eval_index=idx)
         ctx = build_eval_context(ref, goal, project_root=project, cfg=cfg)
         run = await run_eval(eval_def, ref, ctx)
-        if run.status == "error":
+        if run.status in ("error", "failed"):
+            output = (run.output or "")[:reasoning_chars]
             return EvaluatorVerdict(
                 achieved=False,
-                summary=f"goal eval {idx} errored",
-                reasoning=(run.output or "")[:reasoning_chars],
-            )
-        if run.status == "failed":
-            return EvaluatorVerdict(
-                achieved=False,
-                summary=f"goal eval {idx} failed",
-                reasoning=(run.output or "")[:reasoning_chars],
+                summary=f"goal eval {idx} {run.status}",
+                reasoning=output,
+                feedback=output or None,
             )
 
     # Evaluator agent.
@@ -139,24 +158,28 @@ async def sprint_evaluate(
         cwd=project,
     )
     if not result.success:
-        # All mechanical evals passed but the evaluator call failed — conservative default.
-        return EvaluatorVerdict(
-            achieved=False,
-            summary="evaluator call failed",
-            reasoning=result.error or "unknown evaluator error",
+        # Infrastructure failure — escalate, don't loop into another sprint.
+        raise SprintEvaluatorError(
+            sprint_id=sprint.id,
+            reason=f"evaluator call failed: {result.error or 'unknown evaluator error'}",
         )
 
     parsed = _parse_evaluator_verdict(result.output)
-    # Mechanical > evaluator: if all mechanical evals existed and passed and the
-    # evaluator is silent, default to achieved=True.
     if parsed is None:
-        achieved = bool(goal.eval)
-    else:
-        achieved = parsed
+        # Mechanical evals (if any) already passed, but the evaluator emitted
+        # no GOAL_MET/ACHIEVED marker — treat as infra-error rather than
+        # silently defaulting either way.
+        raise SprintEvaluatorError(
+            sprint_id=sprint.id,
+            reason="evaluator output missing GOAL_MET marker",
+        )
+    achieved = parsed
 
     summary = (result.summary or result.output[:summary_chars] or "goal assessed").strip()
+    feedback = None if achieved else _extract_feedback(result.output, reasoning_chars)
     return EvaluatorVerdict(
         achieved=achieved,
         summary=summary,
         reasoning=result.output[:reasoning_chars],
+        feedback=feedback,
     )

@@ -174,6 +174,7 @@ async def _cmd_ralph(args: argparse.Namespace) -> int:
 
 
 async def _cmd_sprint_evaluate(args: argparse.Namespace) -> int:
+    from autopilot.domain.errors import SprintEvaluatorError
     from autopilot.domain.roadmap import Roadmap
     from autopilot.domain.sprint import Sprint
     from autopilot.orchestrator.evaluate import sprint_evaluate
@@ -190,7 +191,10 @@ async def _cmd_sprint_evaluate(args: argparse.Namespace) -> int:
     sprint = Sprint.load(sprint_dir)
     roadmap = Roadmap.load(project / ".dev" / "roadmap.md")
     goal = roadmap.goal(sprint.primary_goal)
-    verdict = await sprint_evaluate(sprint, goal, roadmap, cfg, project)
+    try:
+        verdict = await sprint_evaluate(sprint, goal, roadmap, cfg, project)
+    except SprintEvaluatorError as e:
+        raise CLIError(reason=str(e)) from e
     print(f"achieved={verdict.achieved}: {verdict.summary}")
     return 0 if verdict.achieved else 1
 

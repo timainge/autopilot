@@ -27,6 +27,10 @@ class Sprint:
     status: Literal["planning", "approved", "active", "completed", "failed", "escalated"]
     revision_rounds: list[RevisionRecord] = field(default_factory=list)
     summary: str | None = None
+    # Evaluator's prose verdict when the sprint completed but the goal was
+    # judged not yet met. Surfaced to the next planner so the remediation
+    # sprint sees what the prior pass missed.
+    closing_evaluator_notes: str | None = None
     _dir: Path | None = None
 
     def __post_init__(self) -> None:
@@ -115,6 +119,11 @@ class Sprint:
         self.status = "escalated"
         self.summary = reason
 
+    @persists
+    def set_closing_evaluator_notes(self, text: str) -> None:
+        """Persist evaluator feedback after a sprint that didn't achieve its goal."""
+        self.closing_evaluator_notes = text
+
     @classmethod
     def load(cls, sprint_dir: Path) -> "Sprint":
         from autopilot.domain.parse import parse_sprint
@@ -146,6 +155,7 @@ class Sprint:
             "status": self.status,
             "revision_rounds": [_revision_to_dict(r) for r in self.revision_rounds],
             "summary": self.summary,
+            "closing_evaluator_notes": self.closing_evaluator_notes,
         }
         content = f"---\n{yaml.safe_dump(fm, sort_keys=False)}---\n\n{self.context}\n"
         atomic_write(self._dir / f"{self.id}.md", content)

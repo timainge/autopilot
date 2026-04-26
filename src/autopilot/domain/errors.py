@@ -100,6 +100,15 @@ class EvalInfrastructureError(Exception):  # noqa: N818 — name fixed by design
 
 
 @dataclass(eq=False)
+class SprintEvaluatorError(Exception):  # noqa: N818 — name fixed by design §12.2
+    sprint_id: str
+    reason: str
+
+    def __str__(self) -> str:
+        return f"SprintEvaluatorError: {self.sprint_id}: {self.reason}"
+
+
+@dataclass(eq=False)
 class CLIError(Exception):
     reason: str
 

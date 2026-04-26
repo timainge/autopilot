@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 from autopilot.config import AutopilotConfig
+from autopilot.domain.errors import SprintEvaluatorError
 from autopilot.domain.goal import Goal
 from autopilot.domain.roadmap import Roadmap
 from autopilot.domain.sprint import Sprint
@@ -17,7 +18,7 @@ from autopilot.orchestrator.plan import smithers
 
 @dataclass
 class RalphOutcome:
-    kind: Literal["goals_met", "escalated", "stuck", "max_sprints_hit"]
+    kind: Literal["goals_met", "escalated", "stuck", "max_sprints_hit", "eval_error"]
     sprint: Sprint | None = None
     goal: Goal | None = None
 
@@ -43,12 +44,19 @@ async def ralph(project: Path, cfg: AutopilotConfig) -> RalphOutcome:
         goal = roadmap.goal(goal.id)
         sprint = Sprint.load(project / ".dev" / "sprints" / sprint.id)
 
-        verdict = await sprint_evaluate(sprint, goal, roadmap, cfg, project)
+        try:
+            verdict = await sprint_evaluate(sprint, goal, roadmap, cfg, project)
+        except SprintEvaluatorError:
+            # Infra failure in the evaluator — don't loop into another sprint.
+            return RalphOutcome(kind="eval_error", sprint=sprint, goal=goal)
+
         if verdict.achieved:
             goal.mark_achieved(sprint.id, verdict.summary)
             continue
         if sprint.status == "failed":
             return RalphOutcome(kind="stuck", sprint=sprint, goal=goal)
-        # Goal still in-progress: another sprint.
+        # Goal still in-progress: persist evaluator feedback and plan another sprint.
+        if verdict.feedback:
+            sprint.set_closing_evaluator_notes(verdict.feedback)
 
     return RalphOutcome(kind="max_sprints_hit")
