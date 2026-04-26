@@ -1,8 +1,27 @@
+import os
 import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 from autopilot.domain.errors import ConfigError
+
+# Single-knob model override — when `AUTOPILOT_MODEL` is set, every role's
+# `*_model` field collapses to the same model id. Useful for stress-testing
+# prompts on a smaller / faster / cheaper model than the per-role defaults.
+_MODEL_ALIASES: dict[str, str] = {
+    "haiku": "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-4-6",
+    "opus": "claude-opus-4-7",
+}
+_MODEL_FIELDS: tuple[str, ...] = (
+    "worker_model",
+    "planner_model",
+    "critic_model",
+    "judge_model",
+    "evaluator_model",
+    "researcher_model",
+    "roadmap_writer_model",
+)
 
 
 @dataclass(frozen=True)
@@ -68,4 +87,17 @@ def load_config(project_root: Path | None = None) -> AutopilotConfig:
                 reason="project_root is not user-settable",
             )
         merged.update(data)
+
+    env_model = os.environ.get("AUTOPILOT_MODEL")
+    if env_model:
+        alias = env_model.strip().lower()
+        if alias not in _MODEL_ALIASES:
+            allowed = sorted(_MODEL_ALIASES)
+            raise ConfigError(
+                source="env:AUTOPILOT_MODEL",
+                reason=f"unknown model alias {env_model!r}; expected one of {allowed}",
+            )
+        for f in _MODEL_FIELDS:
+            merged[f] = _MODEL_ALIASES[alias]
+
     return AutopilotConfig(project_root=root, **merged)
