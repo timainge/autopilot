@@ -260,7 +260,16 @@ async def smithers(
             goal.mark_in_progress(sprint_draft.id)
             return sprint_draft
 
-        feedback = verdict.feedback
+        # NOT_READY: feed both the judge's verdict feedback AND the critic's
+        # notes into the next planner round. The judge gates; the critic
+        # coaches the planner. Both signals carry information the planner
+        # needs to produce a better revision.
+        feedback_parts: list[str] = []
+        if verdict.feedback:
+            feedback_parts.append(f"--- JUDGE FEEDBACK ---\n{verdict.feedback}")
+        if critic_notes:
+            feedback_parts.append(f"--- CRITIC NOTES ---\n{critic_notes}")
+        feedback = "\n\n".join(feedback_parts) if feedback_parts else None
 
     # Max rounds exhausted: persist best-effort escalated sprint so disk is legible.
     if last_sprint is not None:
