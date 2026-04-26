@@ -134,6 +134,13 @@ The judge rejected your previous sprint. Read the `FEEDBACK` block, fix
 every item cited, and re-emit the full envelope. Do not discard work the
 judge did not flag.
 
+### If the prompt contains a `PRIOR EVALUATOR FEEDBACK` block
+
+The previous sprint completed but the evaluator judged the goal not yet
+met. Read the block: it names what is still missing. Plan a remediation
+sprint whose tasks address those specific gaps — do not re-plan from
+scratch as if the prior sprint never happened.
+
 ## Task-quality checklist
 
 Each task should:

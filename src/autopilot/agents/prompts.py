@@ -185,12 +185,17 @@ def build_planner_prompt(
     prior_sprints: list[Sprint],
     research: str | None,
     feedback: str | None = None,
+    evaluator_feedback: str | None = None,
 ) -> str:
     """Planner prompt: roadmap narrative + goal + prior sprints + research + feedback.
 
     Output is parsed into Sprint/Task entities by `_parse_planner_output` (plan.py):
     the prompt specifies the `### FILE:` envelope contract literally so the model
     cannot drift onto a side-writes-files interpretation.
+
+    `evaluator_feedback` is the prior sprint evaluator's prose verdict when an
+    earlier sprint completed but the goal was judged not yet met — surfaced
+    so this remediation sprint can address what the evaluator flagged.
     """
     sections: list[str] = [
         "Plan the next sprint against the target goal below.",
@@ -205,6 +210,9 @@ def build_planner_prompt(
     if prior_sprints:
         summary_lines = [_prior_sprint_summary(s) for s in prior_sprints]
         sections += ["", _fence("PRIOR SPRINTS", "\n".join(summary_lines))]
+
+    if evaluator_feedback:
+        sections += ["", _fence("PRIOR EVALUATOR FEEDBACK", evaluator_feedback.strip())]
 
     if research:
         sections += ["", _fence("RESEARCH", research.strip())]

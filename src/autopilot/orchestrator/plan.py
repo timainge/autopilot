@@ -162,6 +162,14 @@ async def smithers(
     sprint_id = next_sprint_id(project)
     sprint_dir = project / ".dev" / "sprints" / sprint_id
 
+    # Pull the most-recent prior sprint targeting this goal — if it carried
+    # closing evaluator notes, surface them so the planner can remediate.
+    evaluator_feedback: str | None = None
+    for s in reversed(prior_sprints):
+        if s.primary_goal == goal.id and s.closing_evaluator_notes:
+            evaluator_feedback = s.closing_evaluator_notes
+            break
+
     feedback: str | None = None
     rounds: list[RevisionRecord] = []
     last_sprint: Sprint | None = None
@@ -170,7 +178,14 @@ async def smithers(
     for _round in range(total_rounds):
         planner_result = await run_agent(
             "planner",
-            build_planner_prompt(roadmap, goal, prior_sprints, research, feedback),
+            build_planner_prompt(
+                roadmap,
+                goal,
+                prior_sprints,
+                research,
+                feedback,
+                evaluator_feedback=evaluator_feedback,
+            ),
             cfg,
             cwd=project,
         )

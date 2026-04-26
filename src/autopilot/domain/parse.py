@@ -18,7 +18,14 @@ from autopilot.domain.task import AttemptRecord, Task
 # Per-entity allow-lists (§12.9 strict parsing). Unknown top-level keys → ParseError.
 _ROADMAP_KEYS = {"archetype", "eval"}
 _GOAL_KEYS = {"id", "priority", "status", "eval", "achieved_by", "summary"}
-_SPRINT_KEYS = {"id", "primary_goal", "status", "revision_rounds", "summary"}
+_SPRINT_KEYS = {
+    "id",
+    "primary_goal",
+    "status",
+    "revision_rounds",
+    "summary",
+    "closing_evaluator_notes",
+}
 _TASK_KEYS = {"id", "status", "depends_on", "eval", "attempts", "summary"}
 _EVAL_RUN_KEYS = {
     "id",
@@ -281,6 +288,7 @@ def parse_sprint(
         status=fm["status"],
         revision_rounds=_parse_revision_rounds(fm.get("revision_rounds"), sprint_path),
         summary=fm.get("summary"),
+        closing_evaluator_notes=fm.get("closing_evaluator_notes"),
     )
 
 
