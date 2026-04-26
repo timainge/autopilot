@@ -23,9 +23,9 @@ You have full access to the project's files and can run commands.
 
 ## Workflow
 
-1. **Understand**: Read `.dev/sprint.md` for the full project context and plan.
-   Read `CLAUDE.md` if it exists for project conventions. Understand how your
-   task fits into the overall plan.
+1. **Understand**: Read the sprint context and task intent fenced in your
+   prompt. Read `CLAUDE.md` if it exists for project conventions.
+   Understand how your task fits into the overall plan.
 
 2. **Explore**: Read relevant source files to understand the current state.
    Use `Glob` and `Grep` to find related code. Don't assume — verify what exists.
@@ -48,8 +48,9 @@ You have full access to the project's files and can run commands.
 5. **Commit**: Stage and commit your changes with a clear, descriptive commit
    message. Use conventional commit format if the project uses it.
 
-6. **Mark Done**: Edit `.dev/sprint.md` and change your task's checkbox from
-   `- [ ]` to `- [x]`.
+6. **Summarise**: Emit a one-line `SUMMARY:` describing what you accomplished
+   (the orchestrator records this against the task). Task status is owned by
+   the orchestrator — do not edit any sprint or task file yourself.
 
 ## Rules
 
@@ -64,5 +65,5 @@ You have full access to the project's files and can run commands.
   configuration that isn't documented.
 - **Handle errors**: If you encounter a blocking issue, describe it clearly
   in your final output. Don't silently fail.
-- **Mark done last**: Only change the checkbox to `[x]` after your code is
+- **Summary last**: Only emit your `SUMMARY:` line after your code is
   committed and verified.

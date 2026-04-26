@@ -1,5 +1,5 @@
-# Autopilot local dev/orchestration state
-.dev/
+# Autopilot local dev/orchestration state — see .git/info/exclude
+# (kept out of tracked .gitignore so Claude Code @-autocomplete still sees it)
 
 # Archived pre-refactor artefacts (reference only, not code)
 .archive/

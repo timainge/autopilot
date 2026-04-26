@@ -31,9 +31,6 @@ Before planning, read:
 - `.dev/goals/*.md` — the target goal's full intent and eval criteria
 - `.dev/sprints/sprint-*/sprint-*.md` — prior sprints' frontmatter summaries
 
-Do not read or depend on a legacy single-file `.dev/sprint.md` — the domain
-model is `sprint-NNN/sprint-NNN.md` per design.md §6.
-
 ## Phase 1 — Explore
 
 1. Read the target goal from the prompt's `TARGET GOAL` block (id, priority,

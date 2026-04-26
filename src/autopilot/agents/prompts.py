@@ -46,6 +46,7 @@ def _workspace_preamble(cwd: Path, archetype: str | None = None) -> str:
         "and will time the sprint out."
     )
 
+
 # Task scope integrity — verbatim from `.dev/vision.md §Task Scope Integrity`.
 # This is prompt-level protection (permission-level backstop is a follow-up).
 _TASK_SCOPE_INTEGRITY = """\
