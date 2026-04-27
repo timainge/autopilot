@@ -225,8 +225,8 @@ async def run_agent(
                 for block in message.content:
                     if hasattr(block, "text"):
                         output_parts.append(block.text)
-            if hasattr(message, "cost_usd"):
-                total_cost = message.cost_usd or 0.0
+            if hasattr(message, "total_cost_usd") and message.total_cost_usd is not None:
+                total_cost = message.total_cost_usd
 
     try:
         await asyncio.wait_for(_drain(), timeout=cfg.agent_call_timeout_sec)
