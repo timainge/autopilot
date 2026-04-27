@@ -33,6 +33,25 @@ AUTOPILOT_REAL_AGENT_OK=1 tests/smoke/case-studies/cadence/cadence-plumbing.sh
 
 Without the gate set, the script exits immediately with a clear message.
 
+### Optional env vars
+
+- **`VERBOSE=1`** — stream the JSONL events from `autopilot ralph` to
+  stderr in real time (also tee'd to `<tmpdir>/.dev/logs/ralph-stderr.log`).
+  Without it the run is quiet until the summary at the end. Useful when
+  you want to watch the loop progress or attach to a long run.
+
+- **`AUTOPILOT_MODEL=<haiku|sonnet|opus>`** — collapse every role's model
+  to one tier. Useful for stress-testing prompts on a smaller / faster /
+  cheaper model than the per-role defaults (default: planner +
+  roadmap_writer on opus, others on sonnet). Example:
+
+  ```bash
+  AUTOPILOT_REAL_AGENT_OK=1 AUTOPILOT_MODEL=haiku VERBOSE=1 \
+    tests/smoke/case-studies/cadence/cadence-plumbing.sh
+  ```
+
+  An invalid value raises `ConfigError` at startup.
+
 ## Structure
 
 ```
