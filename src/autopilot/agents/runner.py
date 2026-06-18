@@ -18,6 +18,12 @@ from autopilot.log import emit
 _ROLES_DIR = Path(__file__).parent / "roles"
 _FAKE_AGENT_ENV = "AUTOPILOT_FAKE_AGENT"
 _FAKE_DELAY_ENV = "AUTOPILOT_FAKE_DELAY_MS"
+_FAKE_COST_ENV = "AUTOPILOT_FAKE_COST_USD"
+
+# Per-role call counters for the fake-agent indexed-file lookup. Process-local;
+# Lisa runs in a single process so this is sufficient. Reset is implicit per
+# CLI invocation (each `autopilot ...` is a fresh process).
+_FAKE_CALL_COUNTERS: dict[str, int] = {}
 
 
 @dataclass
@@ -131,7 +137,14 @@ async def run_agent(
     if fake:
         fake_path = Path(fake)
         if fake_path.is_dir():
-            role_file = fake_path / f"{role}.txt"
+            # Per-role call counter: prefer `<role>-call-<N>.txt` (1-indexed) when
+            # present, else fall back to `<role>.txt`. Lets fixtures vary outputs
+            # across multiple calls of the same role in one process — needed for
+            # the Lisa iterate smoke (judge: INSUFFICIENT then SATISFIED).
+            call_n = _FAKE_CALL_COUNTERS.get(role, 0) + 1
+            _FAKE_CALL_COUNTERS[role] = call_n
+            indexed = fake_path / f"{role}-call-{call_n}.txt"
+            role_file = indexed if indexed.is_file() else fake_path / f"{role}.txt"
             if not role_file.is_file():
                 duration_ms = int((time.monotonic() - start) * 1000)
                 emit(
@@ -161,19 +174,25 @@ async def run_agent(
             if delay_ms > 0:
                 await asyncio.sleep(delay_ms / 1000.0)
 
+        cost_raw = os.environ.get(_FAKE_COST_ENV)
+        try:
+            fake_cost = float(cost_raw) if cost_raw else 0.0
+        except ValueError:
+            fake_cost = 0.0
+
         duration_ms = int((time.monotonic() - start) * 1000)
         emit(
             "agent.call.end",
             role=role,
             run_id=run_id,
-            cost_usd=0.0,
+            cost_usd=fake_cost,
             duration_ms=duration_ms,
             status="ok",
         )
         return AgentResult(
             success=True,
             output=output,
-            cost_usd=0.0,
+            cost_usd=fake_cost,
             summary=_extract_summary(output),
         )
 

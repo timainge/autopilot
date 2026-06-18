@@ -27,6 +27,8 @@ _SPRINT_KEYS = {
     "closing_evaluator_notes",
 }
 _TASK_KEYS = {"id", "status", "depends_on", "eval", "attempts", "summary"}
+_RESEARCH_RUN_KEYS = {"slug", "status", "iteration", "gaps", "summary", "cost_usd"}
+_ENQUIRY_KEYS = {"id", "iteration", "status", "question", "sources", "cost_usd", "error"}
 _EVAL_RUN_KEYS = {
     "id",
     "eval_ref",
@@ -346,6 +348,195 @@ def parse_eval_run(text: str, path: Path | None = None):  # noqa: ANN201 — imp
         cost_usd=float(fm.get("cost_usd", 0.0)),
         context_digest=str(fm.get("context_digest", "")),
     )
+
+
+def parse_research_run(text: str, path: Path | None = None):  # noqa: ANN201 — local import
+    from autopilot.domain.research import ResearchRun
+
+    fm, body = _split_frontmatter(text, path)
+    _check_keys(fm, _RESEARCH_RUN_KEYS, path)
+    slug = _require(fm, "slug", path)
+    _require(fm, "status", path)
+    if not body.strip():
+        fp = path if path is not None else Path("<memory>")
+        raise ParseError(
+            file_path=fp, line_number=None, reason="research_run body (brief) is required"
+        )
+    iteration_raw = fm.get("iteration", 0)
+    if not isinstance(iteration_raw, int) or isinstance(iteration_raw, bool):
+        fp = path if path is not None else Path("<memory>")
+        raise ParseError(file_path=fp, line_number=None, reason="iteration: expected int")
+    gaps_raw = fm.get("gaps") or []
+    if not isinstance(gaps_raw, list):
+        fp = path if path is not None else Path("<memory>")
+        raise ParseError(file_path=fp, line_number=None, reason="gaps: expected list")
+    return ResearchRun(
+        slug=str(slug),
+        brief=body,
+        status=fm["status"],
+        iteration=iteration_raw,
+        gaps=[str(g) for g in gaps_raw],
+        summary=fm.get("summary"),
+        cost_usd=float(fm.get("cost_usd", 0.0)),
+    )
+
+
+def parse_enquiry(text: str, path: Path | None = None):  # noqa: ANN201 — local import
+    from autopilot.domain.research import Enquiry
+
+    fm, body = _split_frontmatter(text, path)
+    _check_keys(fm, _ENQUIRY_KEYS, path)
+    enq_id = _require(fm, "id", path)
+    iteration_raw = _require(fm, "iteration", path)
+    _require(fm, "status", path)
+    question = _require(fm, "question", path)
+    if not isinstance(iteration_raw, int) or isinstance(iteration_raw, bool):
+        fp = path if path is not None else Path("<memory>")
+        raise ParseError(file_path=fp, line_number=None, reason="iteration: expected int")
+    sources_raw = fm.get("sources") or []
+    if not isinstance(sources_raw, list):
+        fp = path if path is not None else Path("<memory>")
+        raise ParseError(file_path=fp, line_number=None, reason="sources: expected list")
+    return Enquiry(
+        id=str(enq_id),
+        iteration=iteration_raw,
+        question=str(question),
+        status=fm["status"],
+        findings=body,
+        sources=[str(s) for s in sources_raw],
+        cost_usd=float(fm.get("cost_usd", 0.0)),
+        error=fm.get("error"),
+    )
+
+
+def _parse_enquiry_plan(
+    text: str, *, starting_id: int, iteration: int, cap: int, path: Path | None = None
+) -> list:
+    """Decomposer output → list of Enquiry. Splits on `### ENQUIRY:` headers.
+
+    Each envelope: header line `### ENQUIRY: <question>` followed by optional
+    body lines (scope / context). Trailing prose outside any envelope → ParseError.
+    The first ID equals `starting_id` (zero-padded width 3); subsequent ids increment.
+    Caps the result at `cap` envelopes — extras are dropped silently (the
+    decomposer prompt instructs no more than cap).
+    """
+    from autopilot.domain.research import Enquiry
+
+    fp = path if path is not None else Path("<memory>")
+    lines = text.splitlines()
+    header_idxs: list[int] = []
+    for i, ln in enumerate(lines):
+        if ln.lstrip().startswith("### ENQUIRY:"):
+            header_idxs.append(i)
+    if not header_idxs:
+        raise ParseError(
+            file_path=fp,
+            line_number=None,
+            reason="decomposer output has no `### ENQUIRY:` envelope",
+        )
+    # Reject content before the first envelope (must be a clean enquiry list).
+    pre = "\n".join(lines[: header_idxs[0]]).strip()
+    if pre:
+        raise ParseError(
+            file_path=fp,
+            line_number=None,
+            reason="decomposer output: prose before first `### ENQUIRY:` envelope",
+        )
+    out: list[Enquiry] = []
+    for n, hdr_idx in enumerate(header_idxs):
+        if n >= cap:
+            break
+        end_idx = header_idxs[n + 1] if n + 1 < len(header_idxs) else len(lines)
+        header = lines[hdr_idx]
+        question = header.split(":", 1)[1].strip()
+        body_lines = lines[hdr_idx + 1 : end_idx]
+        body = "\n".join(body_lines).strip()
+        full_question = question if not body else f"{question}\n\n{body}"
+        if not full_question:
+            raise ParseError(
+                file_path=fp,
+                line_number=None,
+                reason=f"decomposer envelope {n}: empty question",
+            )
+        new_id = f"{starting_id + n:03d}"
+        out.append(Enquiry(id=new_id, iteration=iteration, question=full_question))
+    return out
+
+
+def _parse_enquiry_output(text: str) -> tuple[str, list[str]]:
+    """Researcher output → (findings, sources). Optional trailing `## Sources` section.
+
+    `## Sources` is treated as the boundary. Findings = everything before;
+    sources = bullet list under the heading (one per `- ` or `* ` line).
+    No `## Sources` heading → returns the whole text as findings + `[]`.
+    """
+    lines = text.splitlines()
+    boundary = None
+    for i, ln in enumerate(lines):
+        stripped = ln.strip()
+        if stripped.lower() == "## sources":
+            boundary = i
+            break
+    if boundary is None:
+        return text.rstrip("\n"), []
+    findings = "\n".join(lines[:boundary]).rstrip("\n")
+    sources: list[str] = []
+    for ln in lines[boundary + 1 :]:
+        s = ln.strip()
+        if not s:
+            continue
+        if s.startswith(("- ", "* ")):
+            sources.append(s[2:].strip())
+        elif s.startswith("##"):  # next section
+            break
+    return findings, sources
+
+
+@dataclass
+class CoverageVerdict:
+    satisfied: bool
+    gaps: list[str]
+
+
+def parse_coverage_verdict(text: str) -> CoverageVerdict:
+    """Research-judge output: `COVERAGE: SATISFIED|INSUFFICIENT` + optional `## Gaps` list."""
+    lines = text.splitlines()
+    verdict_line = None
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith("COVERAGE:"):
+            verdict_line = s
+            break
+    if verdict_line is None:
+        raise ParseError(
+            file_path=Path("<memory>"),
+            line_number=None,
+            reason="research-judge output missing `COVERAGE:` marker",
+        )
+    body = verdict_line.split(":", 1)[1].strip().upper()
+    if body == "SATISFIED":
+        satisfied = True
+    elif body == "INSUFFICIENT":
+        satisfied = False
+    else:
+        raise ParseError(
+            file_path=Path("<memory>"),
+            line_number=None,
+            reason=f"research-judge: unknown verdict {body!r}",
+        )
+    gaps: list[str] = []
+    in_gaps = False
+    for ln in lines:
+        s = ln.strip()
+        if s.lower() == "## gaps":
+            in_gaps = True
+            continue
+        if in_gaps:
+            if s.startswith(("- ", "* ")):
+                gaps.append(s[2:].strip())
+            elif s.startswith("##"):
+                break
+    return CoverageVerdict(satisfied=satisfied, gaps=gaps)
 
 
 def _extract_eval_run_output(body: str) -> str:

@@ -8,6 +8,7 @@ import yaml
 
 from autopilot.domain.clock import now
 from autopilot.domain.goal import Goal
+from autopilot.domain.research import Enquiry, ResearchRun
 from autopilot.domain.roadmap import Roadmap
 from autopilot.domain.sprint import Sprint
 from autopilot.domain.task import AttemptRecord, Task
@@ -378,10 +379,10 @@ Rules:
 - No prose outside the blocks."""
 
 
-def build_researcher_prompt(topic: str, project_root: Path) -> str:
-    """Researcher prompt: topic + project root. Output is raw markdown (no FILE: envelope)."""
+def build_analyst_prompt(topic: str, project_root: Path) -> str:
+    """Analyst prompt: topic + project root. Output is raw markdown (no FILE: envelope)."""
     return (
-        f"Research the topic `{topic}` for the project at `{project_root}`. "
+        f"Analyse the topic `{topic}` for the project at `{project_root}`. "
         "Explore the codebase as needed, then return a concise markdown summary "
         "of your findings. Your entire response becomes the research document — "
         "no leading preamble, no file envelope.\n"
@@ -444,5 +445,288 @@ def build_evaluator_prompt(sprint: Sprint, goal: Goal, roadmap: Roadmap) -> str:
         "",
         "Followed by a concise assessment (2-5 sentences). If not satisfied,",
         "describe what remains.",
+    ]
+    return "\n".join(sections)
+
+
+# ---------- Lisa (research loop) ----------
+
+
+_DECOMPOSER_ROLE_GUARD = """\
+## Your role in the map-reduce
+
+You are the MAP step. The downstream synthesiser is the REDUCE step. Your
+output must contain only knowledge-gathering enquiries — questions whose
+answer requires going out and finding new information from primary
+sources. Anything that combines, contrasts, ranks, summarises, or
+synthesises *across* findings is the synthesiser's job, not yours.
+
+Each enquiry MUST be:
+- A line of enquiry — a single question whose answer is fact, code, or
+  evidence retrievable from one or a handful of primary sources.
+- Independent — answerable without reading another enquiry's findings.
+- Narrow enough to dispatch to one researcher in one pass.
+
+Each enquiry MUST NOT be:
+- A synthesis or comparison task ("synthesise across all frameworks",
+  "compare X and Y", "rank by impact", "identify the most worth borrowing").
+- A summarisation task ("summarise the key findings", "produce an executive
+  summary").
+- A meta-evaluation ("which framework is best", "what should we adopt").
+- Phrased as "synthesise / compare / rank / summarise / evaluate" — those
+  verbs belong downstream.
+
+If the brief asks for a comparison or ranking, your job is to produce the
+fact-finding enquiries that make the comparison possible. The synthesiser
+will then do the comparing. Do not pre-empt it."""
+
+
+_DECOMPOSER_OUTPUT_CONTRACT = """\
+## Output Contract
+
+Emit one or more enquiry envelopes. Format:
+
+### ENQUIRY: <one-line knowledge-gathering question>
+<optional 1-3 lines of scope / context for the researcher>
+
+### ENQUIRY: <next question>
+...
+
+Rules:
+- No prose outside any envelope.
+- One question per envelope; split with "and" / "as well as".
+- Knowledge-gathering only — see "Your role in the map-reduce" above.
+- Aim for 3-6 envelopes; the loop caps at the configured maximum."""
+
+
+def build_decomposer_prompt(run: ResearchRun, prior_gaps: list[str], steer: str | None) -> str:
+    """Decomposer prompt: brief + optional prior gaps + optional steer."""
+    sections = [
+        "Decompose the following research brief into focused enquiries.",
+        "",
+        _fence("BRIEF", run.brief.strip()),
+    ]
+    if prior_gaps:
+        gap_text = "\n".join(f"- {g}" for g in prior_gaps)
+        sections += [
+            "",
+            f"This is iteration {run.iteration + 1}. Coverage was judged INSUFFICIENT after the",
+            "previous iteration. Direct the new enquiries at the gaps below — do not",
+            "re-pose anything already adequately covered.",
+            "",
+            _fence("PRIOR GAPS", gap_text),
+        ]
+    if steer:
+        sections += [
+            "",
+            "A human dropped the following steer into the run directory between",
+            "iterations. Treat it as advisory context for decomposition only — it",
+            "does not modify the brief.",
+            "",
+            _fence("STEER", steer.strip()),
+        ]
+    sections += ["", _DECOMPOSER_ROLE_GUARD, "", _DECOMPOSER_OUTPUT_CONTRACT]
+    return "\n".join(sections)
+
+
+def build_researcher_prompt(brief: str, enquiry: Enquiry) -> str:
+    """Researcher prompt: brief (context) + one enquiry (the actual job)."""
+    sections = [
+        "Investigate the following enquiry. Return raw markdown findings.",
+        "",
+        _fence("RESEARCH BRIEF (CONTEXT)", brief.strip()),
+        "",
+        _fence(f"YOUR ENQUIRY ({enquiry.id})", enquiry.question.strip()),
+        "",
+        "Output rules:",
+        "- Raw markdown only — no `### ENQUIRY:` header, no file envelope.",
+        "- End with an optional `## Sources` section (bullet list, one per",
+        "  source). Omit `## Sources` if you have nothing to cite.",
+        "- Answer this enquiry only — not the whole brief, not adjacent",
+        "  enquiries.",
+    ]
+    return "\n".join(sections)
+
+
+def _enquiry_findings_block(enq: Enquiry) -> str:
+    body = enq.findings.strip() if enq.findings else "(no findings)"
+    sources = "\n".join(f"- {s}" for s in enq.sources) if enq.sources else "(no sources)"
+    return (
+        f"### enquiry-{enq.id} (iteration {enq.iteration})\n"
+        f"Q: {enq.question.strip()}\n\n"
+        f"{body}\n\n"
+        f"Sources:\n{sources}"
+    )
+
+
+def build_synthesiser_prompt(run: ResearchRun) -> str:
+    """Synthesiser prompt (report mode): brief + all completed enquiries → report."""
+    completed = [e for e in run.enquiries if e.status == "completed"]
+    failed = [e for e in run.enquiries if e.status == "failed"]
+    blocks = [_enquiry_findings_block(e) for e in completed]
+    sections = [
+        "Synthesise the findings of the parallel researchers into a single",
+        "coherent report covering the brief.",
+        "",
+        _fence("BRIEF", run.brief.strip()),
+        "",
+        _fence(
+            "ENQUIRY FINDINGS",
+            "\n\n".join(blocks) if blocks else "(no completed enquiries)",
+        ),
+    ]
+    if failed:
+        failed_lines = [
+            f"- enquiry-{e.id} (iteration {e.iteration}): {e.error or 'failed'}" for e in failed
+        ]
+        sections += ["", _fence("FAILED ENQUIRIES", "\n".join(failed_lines))]
+    sections += [
+        "",
+        "Output: raw markdown report. Suggested top-level sections:",
+        "`# <slug>`, `## Summary`, `## Findings`, `## Open Questions`. The Open",
+        "Questions section is your honest accounting of where evidence is thin",
+        "— it feeds the next iteration's decomposer if coverage is insufficient.",
+    ]
+    return "\n".join(sections)
+
+
+def build_summariser_prompt(run: ResearchRun, report_text: str) -> str:
+    """Summariser prompt (synthesiser role, summary mode): report → 3-5 sentence handoff."""
+    sections = [
+        "Distil the following research report into a 3-5 sentence handoff",
+        "summary suitable for a downstream consumer (roadmap writer, planner,",
+        "or human reviewer).",
+        "",
+        _fence("BRIEF", run.brief.strip()),
+        "",
+        _fence("REPORT", report_text.strip()),
+        "",
+        "Output: 3-5 sentences of raw markdown. No headings, no bullet lists,",
+        "no preamble. The reader needs the gist in seconds.",
+    ]
+    return "\n".join(sections)
+
+
+def _extract_open_questions(report_text: str) -> str | None:
+    """Pull the synthesiser's `## Open Questions` section out of a report.
+
+    Returns the body of the section (no heading), or None if the section is
+    absent / empty. Used by the judge prompt as a forcing function so the
+    judge cannot ignore the synthesiser's own admission of gaps.
+    """
+    lines = report_text.splitlines()
+    start = None
+    for i, ln in enumerate(lines):
+        if ln.strip().lower() == "## open questions":
+            start = i + 1
+            break
+    if start is None:
+        return None
+    body: list[str] = []
+    for ln in lines[start:]:
+        if ln.strip().startswith("##"):
+            break
+        body.append(ln)
+    text = "\n".join(body).strip()
+    return text or None
+
+
+def build_research_judge_prompt(run: ResearchRun, report_text: str) -> str:
+    """Research-judge prompt: brief + report + extracted Open Questions → coverage verdict.
+
+    Forces the judge to (a) triage every open question the synthesiser raised,
+    classifying each as GAP_WORTH_CLOSING / OUT_OF_SCOPE / ANSWERED_ELSEWHERE
+    with a reason, before (b) issuing the COVERAGE verdict. SATISFIED is
+    legitimate only when zero items remain in GAP_WORTH_CLOSING. This addresses
+    the calibration concern in phase-5-lisa.md §14 (judge proved too lenient
+    on the first real-use dossier — it explained away the synthesiser's open
+    questions instead of engaging with them).
+    """
+    sections = [
+        "Decide whether the following research report adequately covers the",
+        "brief that prompted it. The brief is canonical — if it lists",
+        "mandatory dimensions, mandatory frameworks, mandatory comparisons,",
+        "or any other must-cover items, those are non-negotiable. A missing",
+        "must-cover item is INSUFFICIENT, not OUT_OF_SCOPE.",
+        "",
+        _fence("BRIEF", run.brief.strip()),
+        "",
+        _fence("REPORT", report_text.strip()),
+    ]
+
+    open_qs = _extract_open_questions(report_text)
+    if open_qs:
+        sections += [
+            "",
+            "The synthesiser's own `## Open Questions` section, extracted",
+            "verbatim. You MUST engage with every item below — silently",
+            "ignoring or hand-waving an open question is the failure mode",
+            "this prompt is calibrated against.",
+            "",
+            _fence("SYNTHESISER OPEN QUESTIONS", open_qs),
+        ]
+
+    sections += [
+        "",
+        "## Step 1 — Triage of synthesiser open questions",
+        "",
+        "If the SYNTHESISER OPEN QUESTIONS block above is present, list each",
+        "item and classify it as exactly one of:",
+        "",
+        "- **GAP_WORTH_CLOSING** — closing this would materially improve the",
+        "  answer to the brief. State *what concrete value* a follow-up",
+        "  iteration would add (a fact established, a comparison enabled, a",
+        "  risk surfaced, etc.). Vague value-claims do not count.",
+        "- **OUT_OF_SCOPE** — explicitly disallowed by the brief, or beyond",
+        "  what the loop can do (e.g. requires interviewing humans, requires",
+        "  a benchmark that does not exist). Cite the brief clause or",
+        "  capability constraint that justifies this.",
+        "- **ANSWERED_ELSEWHERE** — already addressed by another section of",
+        "  the report. Cite the report section.",
+        "",
+        "Format:",
+        "",
+        "## Triage",
+        "- <verbatim open question>: GAP_WORTH_CLOSING — <concrete value-add>",
+        "- <verbatim open question>: OUT_OF_SCOPE — <brief clause or constraint>",
+        "- <verbatim open question>: ANSWERED_ELSEWHERE — <report section>",
+        "",
+        "If no SYNTHESISER OPEN QUESTIONS block is present, write `## Triage`",
+        "followed by `- (synthesiser raised no explicit open questions)`.",
+        "",
+        "## Step 2 — Brief mandatory items",
+        "",
+        "Inspect the BRIEF for any explicitly named must-cover items",
+        "(numbered dimensions, listed frameworks, named deliverables, etc.).",
+        "For each, decide COVERED or GAP_WORTH_CLOSING.",
+        "",
+        "## Brief Coverage",
+        "- <mandatory item from brief>: COVERED — <where in the report>",
+        "- <mandatory item from brief>: GAP_WORTH_CLOSING — <what is missing>",
+        "",
+        "If the brief has no enumerable must-cover items, write",
+        "`- (no enumerable must-cover items)`.",
+        "",
+        "## Step 3 — Verdict",
+        "",
+        "SATISFIED requires ZERO entries in GAP_WORTH_CLOSING across both",
+        "Step 1 and Step 2. One or more GAP_WORTH_CLOSING entries means",
+        "INSUFFICIENT — full stop, regardless of how 'minor' they feel.",
+        "",
+        "Respond with EXACTLY one of:",
+        "",
+        "COVERAGE: SATISFIED",
+        "(or)",
+        "COVERAGE: INSUFFICIENT",
+        "",
+        "Then a `## Gaps` section listing every GAP_WORTH_CLOSING item",
+        "(from either step) with its value-add justification. When SATISFIED,",
+        "the Gaps section may still list any OUT_OF_SCOPE items for the",
+        "permanent record; the loop will not iterate on them.",
+        "",
+        "Format:",
+        "",
+        "## Gaps",
+        "- <gap>: <why closing this would add concrete value>",
     ]
     return "\n".join(sections)

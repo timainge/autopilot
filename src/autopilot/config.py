@@ -21,6 +21,9 @@ _MODEL_FIELDS: tuple[str, ...] = (
     "evaluator_model",
     "researcher_model",
     "roadmap_writer_model",
+    "decomposer_model",
+    "synthesiser_model",
+    "research_judge_model",
 )
 
 
@@ -55,6 +58,16 @@ class AutopilotConfig:
     # Budget
     max_cost_per_call_usd: float = 2.00
     max_cost_per_run_usd: float = 50.00
+
+    # Lisa (research loop)
+    max_research_iterations: int = 3
+    max_enquiries_per_iteration: int = 6
+    max_parallel_research: int = 3
+    max_cost_per_research_run_usd: float = 5.0
+    enquiry_timeout_sec: int = 600
+    decomposer_model: str | None = None
+    synthesiser_model: str | None = None
+    research_judge_model: str | None = None
 
     # Paths (computed post-resolution, not user-set)
     project_root: Path = field(default_factory=Path.cwd)
