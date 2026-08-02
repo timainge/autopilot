@@ -19,18 +19,21 @@ Domain hierarchy: `Roadmap → Goals → Sprints → Tasks`. Full model in
 
 ## Status
 
-Phases 1 + 2 complete and merged to `main`, plus the duct-tape Frink
-hardening merges (phase-a…e: critic-feeds-planner, judge gating, model
-collapse). **Lisa (research loop) is implemented on branch `phase-5-lisa`**
-with all merge-gate suites green — landing per `.dev/plan.md` Stage L0.
+**All three loops are landed on `main`** (2026-08-02): Ralph (build),
+Lisa (research), Frink (experiment). `.dev/plan.md` stages L0–L2 are
+complete — see its §8 Progress log and §9 Decisions record. Default
+smoke suite 26 green, fault suite 4 green, role-alignment, ast-lint,
+ruff check+format, unit tests all green. Structural judge ALIGNED for
+Lisa (×6) and Frink (×5 incl. #F1) under `.dev/logs/judge-pass/`.
 
-Active work follows `.dev/plan.md`: L0 land Lisa → L1 repo tidy + naming
-refactor (retire `homer`/`smithers`; codenames only for self-driving
-loops; README rewrite) → L2 Frink v1 (frozen-rubric-per-experiment).
-Ralph is demoted from headline to supported build loop (kept for
-weaker/local models). Phase 3 (evals) and Phase 4 (archetypes) were never
-planned in detail and are **not scheduled** — see `.dev/vision-index.md`
-§Historical note.
+Naming rule (plan.md §2): codenames only for self-driving loops
+(`ralph`/`lisa`/`frink`); `homer`/`smithers` are retired
+(`sprint execute` / `sprint prepare`). Ralph is demoted from headline to
+supported build loop (kept for weaker/local models). Phase 3 (evals) and
+Phase 4 (archetypes) were never planned in detail and are **not
+scheduled** — see `.dev/vision-index.md` §Historical note. Next-up
+candidates live in plan.md §9 "Known issues" (model threading for
+non-frink roles is highest value).
 
 ---
 
