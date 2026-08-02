@@ -1,5 +1,6 @@
 """Agent text → entity parsers. Per design §6.5 / §12.9: strict, fail-fast."""
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,27 @@ _SPRINT_KEYS = {
 _TASK_KEYS = {"id", "status", "depends_on", "eval", "attempts", "summary"}
 _RESEARCH_RUN_KEYS = {"slug", "status", "iteration", "gaps", "summary", "cost_usd"}
 _ENQUIRY_KEYS = {"id", "iteration", "status", "question", "sources", "cost_usd", "error"}
+_EXPERIMENT_KEYS = {
+    "id",
+    "mode",
+    "status",
+    "rubric",
+    "hil_required",
+    "goal_id",
+    "summary",
+    "cost_usd",
+}
+_LAP_KEYS = {
+    "id",
+    "experiment_id",
+    "branch",
+    "verdict",
+    "verdict_reason",
+    "signals",
+    "cost_usd",
+    "started_at",
+    "completed_at",
+}
 _EVAL_RUN_KEYS = {
     "id",
     "eval_ref",
@@ -552,3 +574,136 @@ def _extract_eval_run_output(body: str) -> str:
     except StopIteration:
         return ""
     return "\n".join(lines[start + 1 : end])
+
+
+# ---------- Frink (experiment loop) ----------
+
+
+def parse_experiment(text: str, path: Path | None = None):  # noqa: ANN201 — local import
+    from autopilot.domain.experiment import Experiment
+
+    fm, body = _split_frontmatter(text, path)
+    _check_keys(fm, _EXPERIMENT_KEYS, path)
+    exp_id = _require(fm, "id", path)
+    mode = _require(fm, "mode", path)
+    _require(fm, "status", path)
+    rubric = _require(fm, "rubric", path)
+    fp = path if path is not None else Path("<memory>")
+    if not body.strip():
+        raise ParseError(
+            file_path=fp, line_number=None, reason="experiment body (objective) is required"
+        )
+    hil_raw = fm.get("hil_required", False)
+    if not isinstance(hil_raw, bool):
+        raise ParseError(file_path=fp, line_number=None, reason="hil_required: expected bool")
+    return Experiment(
+        id=str(exp_id),
+        mode=mode,
+        objective=body,
+        rubric=str(rubric),
+        hil_required=hil_raw,
+        goal_id=fm.get("goal_id"),
+        status=fm["status"],
+        summary=fm.get("summary"),
+        cost_usd=float(fm.get("cost_usd", 0.0)),
+    )
+
+
+def parse_lap(text: str, path: Path | None = None):  # noqa: ANN201 — local import
+    from autopilot.domain.experiment import Lap
+
+    fm, body = _split_frontmatter(text, path)
+    _check_keys(fm, _LAP_KEYS, path)
+    lap_id = _require(fm, "id", path)
+    experiment_id = _require(fm, "experiment_id", path)
+    _require(fm, "verdict", path)
+    fp = path if path is not None else Path("<memory>")
+    if not body.strip():
+        raise ParseError(file_path=fp, line_number=None, reason="lap body (spec) is required")
+    signals_raw = fm.get("signals") or {}
+    if not isinstance(signals_raw, dict):
+        raise ParseError(file_path=fp, line_number=None, reason="signals: expected mapping")
+    return Lap(
+        id=str(lap_id),
+        experiment_id=str(experiment_id),
+        spec=body,
+        branch=fm.get("branch"),
+        signals=signals_raw,
+        verdict=fm["verdict"],
+        verdict_reason=fm.get("verdict_reason"),
+        cost_usd=float(fm.get("cost_usd", 0.0)),
+        started_at=_parse_dt_opt(fm.get("started_at"), path, "started_at"),
+        completed_at=_parse_dt_opt(fm.get("completed_at"), path, "completed_at"),
+    )
+
+
+def parse_runner_output(text: str) -> tuple[str, dict[str, Any]]:
+    """Parse frink-runner output: `### SPEC` prose + `### SIGNALS` yaml block.
+
+    Returns (spec, signals). Raises ParseError when either section is missing
+    or the signals yaml is not a mapping.
+    """
+    fp = Path("<memory>")
+    spec_m = re.search(r"^###\s+SPEC\s*$", text, re.MULTILINE)
+    signals_m = re.search(r"^###\s+SIGNALS\s*$", text, re.MULTILINE)
+    if not spec_m:
+        raise ParseError(file_path=fp, line_number=None, reason="runner output: missing ### SPEC")
+    if not signals_m:
+        raise ParseError(
+            file_path=fp, line_number=None, reason="runner output: missing ### SIGNALS"
+        )
+    if signals_m.start() < spec_m.start():
+        raise ParseError(
+            file_path=fp, line_number=None, reason="runner output: SIGNALS precedes SPEC"
+        )
+    spec = text[spec_m.end() : signals_m.start()].strip()
+    if not spec:
+        raise ParseError(file_path=fp, line_number=None, reason="runner output: empty SPEC")
+    signals_text = text[signals_m.end() :].strip()
+    # Tolerate a ```yaml fence around the signals block.
+    fence = re.match(r"^```(?:yaml)?\s*\n(.*?)\n?```\s*$", signals_text, re.DOTALL)
+    if fence:
+        signals_text = fence.group(1)
+    try:
+        signals = yaml.safe_load(signals_text) or {}
+    except yaml.YAMLError as e:
+        raise ParseError(
+            file_path=fp, line_number=None, reason=f"runner output: signals yaml error: {e}"
+        ) from e
+    if not isinstance(signals, dict):
+        raise ParseError(
+            file_path=fp, line_number=None, reason="runner output: signals must be a mapping"
+        )
+    return spec, signals
+
+
+@dataclass
+class StopJudgeVerdict:
+    verdict: str  # "merge" | "discard" | "iterate"
+    reason: str
+    done: bool
+
+
+def parse_stop_judge_verdict(text: str) -> StopJudgeVerdict:
+    """Parse `VERDICT: merge|discard|iterate`, `REASON: ...`, optional `DONE: yes|no`.
+
+    Missing DONE defaults to no (keep iterating) per phase-5-frink.md §16.
+    """
+    fp = Path("<memory>")
+    verdict_m = re.search(r"^VERDICT:\s*(\S+)\s*$", text, re.MULTILINE)
+    if not verdict_m:
+        raise ParseError(file_path=fp, line_number=None, reason="stop-judge: missing VERDICT:")
+    verdict = verdict_m.group(1).strip().lower()
+    if verdict not in ("merge", "discard", "iterate"):
+        raise ParseError(
+            file_path=fp, line_number=None, reason=f"stop-judge: unknown verdict {verdict!r}"
+        )
+    reason_m = re.search(
+        r"^REASON:\s*(.*?)(?=^(?:DONE|VERDICT):|\Z)", text, re.MULTILINE | re.DOTALL
+    )
+    reason = reason_m.group(1).strip() if reason_m else ""
+    if not reason:
+        raise ParseError(file_path=fp, line_number=None, reason="stop-judge: missing REASON:")
+    done_m = re.search(r"^DONE:\s*(\S+)\s*$", text, re.MULTILINE)
+    done = bool(done_m and done_m.group(1).strip().lower() in ("yes", "true"))
+    return StopJudgeVerdict(verdict=verdict, reason=reason, done=done)
