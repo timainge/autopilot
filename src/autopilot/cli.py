@@ -85,7 +85,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("ralph", help="build loop: plan/execute/evaluate until goals met")
     _proj(sp)
 
-    sp = sub.add_parser("analyse", help="analyse a topic, write to .dev/research/")
+    sp = sub.add_parser("analyse", help="analyse a topic, write to .dev/analysis/")
     _proj(sp)
     sp.add_argument("--topic", default="general")
 
@@ -238,9 +238,9 @@ async def _cmd_analyse(args: argparse.Namespace) -> int:
     project = _resolve_project(args.project)
     cfg = load_config(project_root=project)
     topic = args.topic or "general"
-    research_dir = project / ".dev" / "research"
-    research_dir.mkdir(parents=True, exist_ok=True)
-    out_path = research_dir / f"{topic}.md"
+    analysis_dir = project / ".dev" / "analysis"
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+    out_path = analysis_dir / f"{topic}.md"
 
     result = await run_agent("analyst", build_analyst_prompt(topic, project), cfg, cwd=project)
     if not result.success:
@@ -389,8 +389,8 @@ async def _cmd_sprint_plan(args: argparse.Namespace) -> int:
     from autopilot.domain.parse import parse_sprint
     from autopilot.domain.roadmap import Roadmap
     from autopilot.orchestrator.plan import (
+        _load_analysis,
         _load_prior_sprints,
-        _load_research,
         _parse_planner_output,
         next_sprint_id,
     )
@@ -406,13 +406,13 @@ async def _cmd_sprint_plan(args: argparse.Namespace) -> int:
         raise CLIError(reason="no pending goal available to plan")
 
     prior_sprints = _load_prior_sprints(project)
-    research = _load_research(project)
+    analysis = _load_analysis(project)
     sprint_id = next_sprint_id(project)
     sprint_dir = project / ".dev" / "sprints" / sprint_id
 
     result = await run_agent(
         "planner",
-        build_planner_prompt(roadmap, goal, prior_sprints, research, None),
+        build_planner_prompt(roadmap, goal, prior_sprints, analysis, None),
         cfg,
         cwd=project,
     )

@@ -184,11 +184,11 @@ def build_planner_prompt(
     roadmap: Roadmap,
     goal: Goal,
     prior_sprints: list[Sprint],
-    research: str | None,
+    analysis: str | None,
     feedback: str | None = None,
     evaluator_feedback: str | None = None,
 ) -> str:
-    """Planner prompt: roadmap narrative + goal + prior sprints + research + feedback.
+    """Planner prompt: roadmap narrative + goal + prior sprints + analysis + feedback.
 
     Output is parsed into Sprint/Task entities by `_parse_planner_output` (plan.py):
     the prompt specifies the `### FILE:` envelope contract literally so the model
@@ -215,8 +215,8 @@ def build_planner_prompt(
     if evaluator_feedback:
         sections += ["", _fence("PRIOR EVALUATOR FEEDBACK", evaluator_feedback.strip())]
 
-    if research:
-        sections += ["", _fence("RESEARCH", research.strip())]
+    if analysis:
+        sections += ["", _fence("PROJECT ANALYSIS", analysis.strip())]
 
     if feedback:
         sections += [

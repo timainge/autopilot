@@ -180,11 +180,8 @@ async def lisa(
     slug = slug or _slugify(brief)
     research_root = project / ".dev" / "research"
     run_dir = research_root / slug
-    topic_file = research_root / f"{slug}.md"
     if run_dir.exists():
         raise CLIError(reason=f"research slug already exists: {run_dir}")
-    if topic_file.exists():
-        raise CLIError(reason=f"slug collides with analyst topic file: {topic_file}")
 
     run = ResearchRun(slug=slug, brief=brief)
     run._dir = run_dir

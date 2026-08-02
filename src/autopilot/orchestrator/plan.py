@@ -55,12 +55,12 @@ def _load_prior_sprints(project: Path) -> list[Sprint]:
     return out
 
 
-def _load_research(project: Path) -> str | None:
-    research_dir = project / ".dev" / "research"
-    if not research_dir.is_dir():
+def _load_analysis(project: Path) -> str | None:
+    analysis_dir = project / ".dev" / "analysis"
+    if not analysis_dir.is_dir():
         return None
     parts: list[str] = []
-    for p in sorted(research_dir.glob("*.md")):
+    for p in sorted(analysis_dir.glob("*.md")):
         parts.append(f"# {p.name}\n\n{p.read_text(encoding='utf-8').strip()}")
     if not parts:
         return None
@@ -158,7 +158,7 @@ async def sprint_prepare(
         )
 
     prior_sprints = _load_prior_sprints(project)
-    research = _load_research(project)
+    analysis = _load_analysis(project)
     sprint_id = next_sprint_id(project)
     sprint_dir = project / ".dev" / "sprints" / sprint_id
 
@@ -182,7 +182,7 @@ async def sprint_prepare(
                 roadmap,
                 goal,
                 prior_sprints,
-                research,
+                analysis,
                 feedback,
                 evaluator_feedback=evaluator_feedback,
             ),
