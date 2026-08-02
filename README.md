@@ -102,13 +102,9 @@ autopilot roadmap create . --research .dev/research/<slug>/summary.md
 - `autopilot lisa [<project>] (--brief <file> | --brief-text <str>) [--slug <s>] [--max-iterations <n>]`
   — research loop.
 - `autopilot frink start [<project>] --mode build|tune|research --objective <str|@file> --rubric <str|@file> [--goal <id>] [--hil]`
-  — experiment loop. Each lap: the runner agent decides one thing to try
-  and does it on a dedicated git branch; a stop-judge (independent model,
-  enforced) verdicts merge/discard/iterate against the rubric — frozen at
-  experiment start so the yardstick can't be gamed; a reviewer synthesises
-  evidence-bound proposals on terminal state. `--hil` gates each verdict
-  on a filesystem approval file. `frink status` and `frink review` inspect
-  and re-review. Requires `.dev/` to be gitignored (branch lifecycle).
+  — experiment loop. See [Running an experiment](#running-an-experiment-frink)
+  for the full walkthrough; `frink status` and `frink review` inspect a
+  run and re-run the reviewer.
 
 ### Composed commands
 
@@ -139,6 +135,112 @@ autopilot analyse [--topic <t>]                # codebase analysis → .dev/anal
 
 Eval refs address evals by entity: `task:<sprint-id>/<task-id>[#i]`,
 `sprint:<sprint-id>[#i]`, `goal:<goal-id>[#i]`.
+
+---
+
+## Running an experiment (frink)
+
+An experiment is a bounded loop of **laps**. Each lap, a runner agent
+decides one thing to try and does it on a dedicated git branch; a
+stop-judge on a **different model** (enforced) verdicts the lap against
+a rubric that was **frozen when the experiment started** — so an
+unattended loop can't game its own yardstick. When the experiment ends
+(done, budget, or iteration cap), a reviewer writes `review.md`:
+evidence-bound proposals for what to change, ranked by signal strength.
+
+### 1. Prerequisites
+
+- The project is a git repository with a **clean working tree** — frink
+  cuts, merges, and deletes `exp/<id>/lap/<id>` branches, and any
+  uncommitted changes you leave lying around get swept into the first
+  lap's commit as if they were lap work.
+- `.dev/` is gitignored (frink refuses to start otherwise — orchestration
+  state must not ride along on lap branches).
+
+### 2. Write the objective and the rubric
+
+The **objective** says what you're exploring. The **rubric** says how a
+lap is judged — make it measurable and checkable, ideally with commands
+the judge can run or artifacts it can read. It cannot change mid-run; if
+it's wrong, finish or stop the experiment and start a new one.
+
+```markdown
+<!-- objective.md -->
+Raise the planner's task-spec quality: task bodies should carry concrete
+done-criteria a worker can verify, without regressing suite pass rate.
+```
+
+```markdown
+<!-- rubric.md -->
+A lap is MERGE-worthy when all hold:
+- `tests/smoke/run.sh` exits 0 (floor — never trade this away).
+- Task bodies in the produced sprint each contain an explicit
+  "**Done**:" criterion referencing a runnable check.
+- Wall-clock regression vs the baseline (1106s) is under 2x.
+The experiment is DONE when a merged lap's improvement holds for two
+consecutive laps.
+```
+
+### 3. Start it
+
+```bash
+autopilot frink start . --mode tune \
+  --objective @objective.md --rubric @rubric.md
+```
+
+`--mode` frames the runner's behaviour — it's an instruction, not a
+different engine:
+
+| Mode | The runner spends its lap... |
+|------|------------------------------|
+| `build` | driving autopilot CLI commands against an objective (link a goal with `--goal <id>`) |
+| `tune` | varying one config/prompt/model and measuring the effect |
+| `research` | testing a hypothesis and reporting what it found |
+
+Each lap you'll see: branch `exp/exp-001/lap/lap-NNN` created → runner
+works and commits → stop-judge reads the runner's SPEC/SIGNALS and
+verdicts **merge** (change is kept — merged to your branch), **discard**
+(branch deleted), or **iterate** (branch kept; next lap continues from
+it). A `merge` verdict with `DONE: yes` completes the experiment.
+
+### 4. Watch and steer
+
+```bash
+autopilot frink status .          # frontmatter + last laps + cost
+cat .dev/experiments/exp-001/lap-002.md   # any lap: spec, signals, verdict
+```
+
+With `--hil`, no verdict is applied until you approve it. Each lap
+writes `lap-NNN.pending.md` containing the proposed verdict, then blocks:
+
+- **Accept as proposed** — delete the file.
+- **Override** — edit it to:
+  ```yaml
+  accepted: true
+  override_verdict: discard        # merge | discard | iterate
+  override_reason: "regression not worth it"
+  ```
+- **Reject** — `accepted: false` (lap is discarded).
+- Do nothing for `frink_hil_timeout_sec` (default 1h) → discard.
+
+### 5. Read the results
+
+The run lives in `.dev/experiments/exp-001/`: `exp-001.md` (status,
+cost, rubric), one `lap-NNN.md` per lap, and `review.md` — the
+reviewer's proposals. Terminal states: `completed` (judge said done),
+`exhausted` (iteration or budget cap), `stopped` (a role failed or you
+aborted). The reviewer runs on every terminal state, including aborts.
+
+Useful afterwards:
+
+```bash
+autopilot frink review .          # re-run the reviewer (e.g. after edits)
+autopilot frink start . ...       # same objective + status=running → resumes
+```
+
+Caps and models come from config: `frink_max_iterations` (20),
+`frink_max_cost_per_run_usd` (25.0), and `frink_runner_model` /
+`frink_stop_judge_model` (must differ) / `frink_reviewer_model`.
 
 ---
 
