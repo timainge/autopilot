@@ -24,7 +24,7 @@ repeat under a budget. Everything else is a plain `noun verb` command.
 |------|---------|-------|
 | **ralph** — build | `autopilot ralph` | plan sprint → execute tasks → evaluate goal → repeat until goals met |
 | **lisa** — research | `autopilot lisa` | decompose brief → parallel enquiries → synthesise → judge coverage → repeat until satisfied |
-| **frink** — experiment | *in development* | plan lap → run in branch → judge against frozen rubric → merge/discard → repeat |
+| **frink** — experiment | `autopilot frink start` | plan lap → run in branch → judge against frozen rubric → merge/discard/iterate → repeat |
 
 Ralph's heavier scaffolding — a fresh Claude Code session per task,
 retries, adversarial critic/judge gates on every plan — is deliberate.
@@ -101,6 +101,14 @@ autopilot roadmap create . --research .dev/research/<slug>/summary.md
   Stops on goals met, an escalated plan, a stuck sprint, or `max_sprints`.
 - `autopilot lisa [<project>] (--brief <file> | --brief-text <str>) [--slug <s>] [--max-iterations <n>]`
   — research loop.
+- `autopilot frink start [<project>] --mode build|tune|research --objective <str|@file> --rubric <str|@file> [--goal <id>] [--hil]`
+  — experiment loop. Each lap: the runner agent decides one thing to try
+  and does it on a dedicated git branch; a stop-judge (independent model,
+  enforced) verdicts merge/discard/iterate against the rubric — frozen at
+  experiment start so the yardstick can't be gamed; a reviewer synthesises
+  evidence-bound proposals on terminal state. `--hil` gates each verdict
+  on a filesystem approval file. `frink status` and `frink review` inspect
+  and re-review. Requires `.dev/` to be gitignored (branch lifecycle).
 
 ### Composed commands
 
@@ -148,6 +156,8 @@ succeeded, or failed at any moment. Add it to `.gitignore`.
     task-NNN.md               # one file per task: spec, attempts, evals
   research/<slug>/            # lisa runs: run.md, enquiry-*.md, report.md,
                               #   gaps.md, summary.md, steer.md (yours)
+  experiments/exp-NNN/        # frink runs: exp-NNN.md, lap-NNN.md,
+                              #   kb/, review.md
   analysis/<topic>.md         # analyse output
   logs/run-*.jsonl            # structured agent-call traces
 ```
@@ -181,6 +191,12 @@ max_research_iterations = 3
 max_enquiries_per_iteration = 6
 max_parallel_research = 3
 max_cost_per_research_run_usd = 5.0
+
+# frink
+frink_max_iterations = 20
+frink_max_cost_per_run_usd = 25.0
+frink_runner_model = "claude-sonnet-4-6"
+frink_stop_judge_model = "claude-opus-4-7"   # must differ from runner_model
 ```
 
 `AUTOPILOT_MODEL=haiku|sonnet|opus` collapses every role to one model —
@@ -207,6 +223,9 @@ frontmatter (tools, permission mode, budget) + system prompt.
 | `researcher` | `lisa` | one enquiry → findings + sources |
 | `synthesiser` | `lisa` | enquiries → report / summary |
 | `research-judge` | `lisa` | SATISFIED / INSUFFICIENT + gaps |
+| `frink-runner` | `frink` | plans + executes one lap on its branch |
+| `frink-stop-judge` | `frink` | merge / discard / iterate verdict |
+| `frink-reviewer` | `frink` | evidence-bound review on terminal state |
 
 ---
 
@@ -227,5 +246,9 @@ prompts; the judge can send a plan back with feedback before anything
 runs.
 
 **Why sequential tasks?** Simpler to debug, cheaper, no merge
-conflicts. Parallelism is planned at the experiment-loop level (branch
-per lap) rather than the task level.
+conflicts. Parallelism lives at the experiment-loop level (branch per
+lap) rather than the task level.
+
+**Why freeze the rubric?** Borrowed from karpathy/autoresearch: the eval
+primitive is immutable for the life of the experiment, so an unattended
+loop can't game its own yardstick. Re-scoping means a new experiment.
