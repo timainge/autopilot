@@ -12,10 +12,10 @@ cp -r "$REPO_ROOT/tests/smoke/fixture/." "$DIR/"
 export AUTOPILOT_FAKE_AGENT="$DIR/.dev/fake-agents"
 
 # Produce an approved sprint so we have a task to run.
-uv run autopilot smithers "$DIR" > /dev/null
+uv run autopilot sprint prepare "$DIR" > /dev/null
 
 # Directly start the sprint so task.start transitions are legal.
-# (homer calls sprint.start; task run expects an `approved` or `active` sprint.)
+# (sprint execute calls sprint.start; task run expects an `approved` or `active` sprint.)
 uv run python -c "
 from pathlib import Path
 from autopilot.domain.sprint import Sprint

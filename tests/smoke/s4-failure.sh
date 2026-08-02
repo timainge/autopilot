@@ -10,8 +10,8 @@ trap 'rm -rf "$DIR"' EXIT
 cp -r "$REPO_ROOT/tests/smoke/fixture-impossible/." "$DIR/"
 
 export AUTOPILOT_FAKE_AGENT="$DIR/.dev/fake-agents"
-uv run autopilot smithers "$DIR" > /dev/null
-set +e; uv run autopilot homer "$DIR" > /dev/null; RC=$?; set -e
+uv run autopilot sprint prepare "$DIR" > /dev/null
+set +e; uv run autopilot sprint execute "$DIR" > /dev/null; RC=$?; set -e
 test "$RC" -ne 0
 
 $YQ "$DIR/.dev/sprints/sprint-001/sprint-001.md" '.status' | grep -qx "failed"

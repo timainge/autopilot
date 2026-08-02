@@ -10,7 +10,7 @@ trap 'rm -rf "$DIR"' EXIT
 cp -r "$REPO_ROOT/tests/smoke/fixture/." "$DIR/"
 
 export AUTOPILOT_FAKE_AGENT="$DIR/.dev/fake-agents"
-uv run autopilot smithers "$DIR" > /dev/null
+uv run autopilot sprint prepare "$DIR" > /dev/null
 
 # Pre-crash: task files parse.
 for f in "$DIR/.dev/sprints/sprint-001"/task-*.md; do
@@ -19,7 +19,7 @@ done
 
 # Trigger a mutation with injected crash. The injection raises SystemExit(137)
 # between tmp.write_text and os.replace, so the process exits non-zero.
-AUTOPILOT_INJECT_CRASH=atomic_write uv run autopilot homer "$DIR" > /dev/null 2>&1 || true
+AUTOPILOT_INJECT_CRASH=atomic_write uv run autopilot sprint execute "$DIR" > /dev/null 2>&1 || true
 
 # All task files remain legible (either old content intact, or new content complete).
 for f in "$DIR/.dev/sprints/sprint-001"/task-*.md; do

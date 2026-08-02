@@ -136,7 +136,7 @@ def _synthesise_escalated_sprint(
     )
 
 
-async def smithers(
+async def sprint_prepare(
     project: Path,
     cfg: AutopilotConfig,
     *,

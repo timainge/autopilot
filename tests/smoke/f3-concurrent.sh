@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# F3 — Two concurrent `homer` calls — neither corrupts state.
+# F3 — Two concurrent `sprint execute` calls — neither corrupts state.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -10,12 +10,12 @@ trap 'rm -rf "$DIR"' EXIT
 cp -r "$REPO_ROOT/tests/smoke/fixture/." "$DIR/"
 
 export AUTOPILOT_FAKE_AGENT="$DIR/.dev/fake-agents"
-uv run autopilot smithers "$DIR" > /dev/null
+uv run autopilot sprint prepare "$DIR" > /dev/null
 
 set +e
-uv run autopilot homer "$DIR" > /dev/null 2>&1 &
+uv run autopilot sprint execute "$DIR" > /dev/null 2>&1 &
 P1=$!
-uv run autopilot homer "$DIR" > /dev/null 2>&1 &
+uv run autopilot sprint execute "$DIR" > /dev/null 2>&1 &
 P2=$!
 wait $P1 || true
 wait $P2 || true

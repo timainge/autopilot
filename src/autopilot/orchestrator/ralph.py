@@ -12,8 +12,8 @@ from autopilot.domain.goal import Goal
 from autopilot.domain.roadmap import Roadmap
 from autopilot.domain.sprint import Sprint
 from autopilot.orchestrator.evaluate import sprint_evaluate
-from autopilot.orchestrator.execute import homer
-from autopilot.orchestrator.plan import smithers
+from autopilot.orchestrator.execute import sprint_execute
+from autopilot.orchestrator.plan import sprint_prepare
 
 
 @dataclass
@@ -33,13 +33,13 @@ async def ralph(project: Path, cfg: AutopilotConfig) -> RalphOutcome:
         if goal is None:
             return RalphOutcome(kind="goals_met")
 
-        sprint = await smithers(project, cfg, goal_id=goal.id)
+        sprint = await sprint_prepare(project, cfg, goal_id=goal.id)
         if sprint.status == "escalated":
             return RalphOutcome(kind="escalated", sprint=sprint, goal=goal)
 
-        await homer(project, cfg, sprint_id=sprint.id)
+        await sprint_execute(project, cfg, sprint_id=sprint.id)
 
-        # Reload from disk: homer/smithers mutated these.
+        # Reload from disk: sprint_prepare/sprint_execute mutated these.
         roadmap = Roadmap.load(roadmap_path)
         goal = roadmap.goal(goal.id)
         sprint = Sprint.load(project / ".dev" / "sprints" / sprint.id)
