@@ -709,3 +709,132 @@ def parse_stop_judge_verdict(text: str) -> StopJudgeVerdict:
     done_m = re.search(r"^DONE:\s*(\S+)\s*$", text, re.MULTILINE)
     done = bool(done_m and done_m.group(1).strip().lower() in ("yes", "true"))
     return StopJudgeVerdict(verdict=verdict, reason=reason, done=done)
+
+
+# ---------- Study (matrix validation runner) ----------
+
+_STUDY_KEYS = {
+    "id",
+    "status",
+    "matrix",
+    "repetitions",
+    "run",
+    "scorer",
+    "summary",
+    "cost_usd",
+}
+_CELL_KEYS = {
+    "id",
+    "study_id",
+    "params",
+    "rep",
+    "status",
+    "signals",
+    "cost_usd",
+    "error",
+    "started_at",
+    "completed_at",
+}
+_STUDY_SPEC_KEYS = {"matrix", "repetitions", "run", "scorer"}
+
+
+def _check_matrix(matrix_raw: Any, fp: Path) -> dict[str, list[str]]:
+    if not isinstance(matrix_raw, dict) or not matrix_raw:
+        raise ParseError(
+            file_path=fp, line_number=None, reason="matrix: expected non-empty mapping"
+        )
+    matrix: dict[str, list[str]] = {}
+    for k, v in matrix_raw.items():
+        if not isinstance(v, list) or not v:
+            raise ParseError(
+                file_path=fp, line_number=None, reason=f"matrix.{k}: expected non-empty list"
+            )
+        matrix[str(k)] = [str(x) for x in v]
+    return matrix
+
+
+def parse_study_spec(text: str, path: Path | None = None) -> dict[str, Any]:
+    """Parse a user-authored study spec: matrix + run + scorer (+ repetitions) + objective."""
+    fm, body = _split_frontmatter(text, path)
+    _check_keys(fm, _STUDY_SPEC_KEYS, path)
+    fp = path if path is not None else Path("<memory>")
+    matrix = _check_matrix(_require(fm, "matrix", path), fp)
+    run_cmd = str(_require(fm, "run", path))
+    scorer_cmd = str(_require(fm, "scorer", path))
+    reps_raw = fm.get("repetitions", 1)
+    if not isinstance(reps_raw, int) or isinstance(reps_raw, bool) or reps_raw < 1:
+        raise ParseError(file_path=fp, line_number=None, reason="repetitions: expected int >= 1")
+    if not body.strip():
+        raise ParseError(
+            file_path=fp, line_number=None, reason="study spec body (objective) is required"
+        )
+    return {
+        "matrix": matrix,
+        "run": run_cmd,
+        "scorer": scorer_cmd,
+        "repetitions": reps_raw,
+        "objective": body,
+    }
+
+
+def parse_study(text: str, path: Path | None = None):  # noqa: ANN201 — local import
+    from autopilot.domain.study import Study
+
+    fm, body = _split_frontmatter(text, path)
+    _check_keys(fm, _STUDY_KEYS, path)
+    study_id = _require(fm, "id", path)
+    _require(fm, "status", path)
+    fp = path if path is not None else Path("<memory>")
+    matrix = _check_matrix(_require(fm, "matrix", path), fp)
+    if not body.strip():
+        raise ParseError(
+            file_path=fp, line_number=None, reason="study body (objective) is required"
+        )
+    reps_raw = fm.get("repetitions", 1)
+    if not isinstance(reps_raw, int) or isinstance(reps_raw, bool):
+        raise ParseError(file_path=fp, line_number=None, reason="repetitions: expected int")
+    return Study(
+        id=str(study_id),
+        objective=body,
+        matrix=matrix,
+        run_cmd=str(_require(fm, "run", path)),
+        scorer_cmd=str(_require(fm, "scorer", path)),
+        repetitions=reps_raw,
+        status=fm["status"],
+        summary=fm.get("summary"),
+        cost_usd=float(fm.get("cost_usd", 0.0)),
+    )
+
+
+def parse_cell(text: str, path: Path | None = None):  # noqa: ANN201 — local import
+    from autopilot.domain.study import Cell
+
+    fm, _body = _split_frontmatter(text, path)
+    _check_keys(fm, _CELL_KEYS, path)
+    cell_id = _require(fm, "id", path)
+    study_id = _require(fm, "study_id", path)
+    params_raw = _require(fm, "params", path)
+    rep_raw = _require(fm, "rep", path)
+    _require(fm, "status", path)
+    fp = path if path is not None else Path("<memory>")
+    if not isinstance(params_raw, dict) or not params_raw:
+        raise ParseError(
+            file_path=fp, line_number=None, reason="params: expected non-empty mapping"
+        )
+    if not isinstance(rep_raw, int) or isinstance(rep_raw, bool):
+        raise ParseError(file_path=fp, line_number=None, reason="rep: expected int")
+    signals_raw = fm.get("signals") or {}
+    if not isinstance(signals_raw, dict):
+        raise ParseError(file_path=fp, line_number=None, reason="signals: expected mapping")
+    return Cell(
+        id=str(cell_id),
+        study_id=str(study_id),
+        params={str(k): str(v) for k, v in params_raw.items()},
+        rep=rep_raw,
+        status=fm["status"],
+        signals=signals_raw,
+        cost_usd=float(fm.get("cost_usd", 0.0)),
+        error=fm.get("error"),
+        started_at=_parse_dt_opt(fm.get("started_at"), path, "started_at"),
+        completed_at=_parse_dt_opt(fm.get("completed_at"), path, "completed_at"),
+    )

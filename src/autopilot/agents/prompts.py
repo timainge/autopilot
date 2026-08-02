@@ -13,6 +13,7 @@ from autopilot.domain.goal import Goal
 from autopilot.domain.research import Enquiry, ResearchRun
 from autopilot.domain.roadmap import Roadmap
 from autopilot.domain.sprint import Sprint
+from autopilot.domain.study import Cell, Study
 from autopilot.domain.task import AttemptRecord, Task
 
 # How much task-intent text to include in prompt summary lines.
@@ -877,5 +878,58 @@ def build_frink_reviewer_prompt(exp: Experiment) -> str:
         "",
         "## No-go (observations that did not yield a proposal)",
         "<honest list of things that looked like patterns but had only one data point>",
+    ]
+    return "\n".join(sections)
+
+
+# ---------- Study (matrix validation runner) ----------
+
+
+def _cell_summary(cell: Cell) -> str:
+    params = ", ".join(f"{k}={v}" for k, v in cell.params.items())
+    if cell.status != "completed":
+        return f"- {cell.id} [{cell.status}] ({params}) error: {cell.error or '-'}"
+    signals = yaml.safe_dump(cell.signals, sort_keys=False, default_flow_style=True).strip()
+    return f"- {cell.id} [completed] ({params}, rep {cell.rep}) signals: {signals}"
+
+
+def build_study_analyst_prompt(study: Study) -> str:
+    """Analyst prompt: objective + every cell's params/signals. Entities in."""
+    cells_text = "\n".join(_cell_summary(c) for c in study.cells) or "(no cells)"
+    matrix_text = yaml.safe_dump(
+        {k: list(v) for k, v in study.matrix.items()}, sort_keys=False
+    ).strip()
+    sections = [
+        f"Analyse completed study {study.id} ({study.repetitions} repetition(s) per cell).",
+        "",
+        _fence("OBJECTIVE", study.objective.strip()),
+        "",
+        _fence("MATRIX", matrix_text),
+        "",
+        _fence("CELLS", cells_text),
+        "",
+        "Compare the cells against the objective. Report effect sizes with",
+        "per-cell evidence. Treat within-cell spread across repetitions as",
+        "the noise floor — a delta inside it is not a finding. Never invent",
+        "significance; 'no clear effect' is a valid finding. Failed cells",
+        "are reported as coverage gaps, not extrapolated over.",
+        "",
+        "Output format:",
+        "",
+        f"# Report — {study.id}",
+        "",
+        "## Summary",
+        "<2-3 sentences: what the study asked and what the data shows>",
+        "",
+        "## Cells",
+        "<table: one row per cell — params, rep, headline signals, status>",
+        "",
+        "## Findings",
+        "<one heading per finding: the claim, the cells/signals supporting",
+        "it, and a confidence (low | medium | high) justified by the noise",
+        "floor>",
+        "",
+        "## Caveats",
+        "<failed cells, small n, anything that bounds the conclusions>",
     ]
     return "\n".join(sections)
