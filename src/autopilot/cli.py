@@ -93,9 +93,17 @@ def _build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("ralph", help="plan/execute/evaluate until goals met")
     _proj(sp)
 
-    sp = sub.add_parser("research", help="research a topic, write to .dev/research/")
+    sp = sub.add_parser("analyse", help="analyse a topic, write to .dev/research/")
     _proj(sp)
     sp.add_argument("--topic", default="general")
+
+    sp = sub.add_parser("lisa", help="research outer-loop: brief → enquiries → report")
+    _proj(sp)
+    brief_group = sp.add_mutually_exclusive_group(required=True)
+    brief_group.add_argument("--brief", default=None, help="path to brief file")
+    brief_group.add_argument("--brief-text", default=None, help="brief inline as a string")
+    sp.add_argument("--slug", default=None)
+    sp.add_argument("--max-iterations", dest="max_iterations", type=int, default=None)
 
     roadmap = sub.add_parser("roadmap", help="roadmap operations")
     roadmap_sub = roadmap.add_subparsers(dest="subcmd", required=True)
@@ -199,11 +207,36 @@ async def _cmd_sprint_evaluate(args: argparse.Namespace) -> int:
     return 0 if verdict.achieved else 1
 
 
-# ---------- research ----------
+# ---------- analyse ----------
 
 
-async def _cmd_research(args: argparse.Namespace) -> int:
-    from autopilot.agents.prompts import build_researcher_prompt
+async def _cmd_lisa(args: argparse.Namespace) -> int:
+    from autopilot.orchestrator.research_loop import lisa
+
+    project = _resolve_project_loose(args.project)
+    cfg = load_config(project_root=project)
+    if args.brief is not None:
+        bp = Path(args.brief)
+        if not bp.is_file():
+            raise CLIError(reason=f"brief file not found: {bp}")
+        brief = bp.read_text(encoding="utf-8")
+    else:
+        brief = args.brief_text
+    if not brief or not brief.strip():
+        raise CLIError(reason="brief is empty")
+    run = await lisa(
+        project,
+        cfg,
+        brief,
+        slug=args.slug,
+        max_iterations=args.max_iterations,
+    )
+    print(f"{run.slug} {run.status}")
+    return 0 if run.status == "satisfied" else 1
+
+
+async def _cmd_analyse(args: argparse.Namespace) -> int:
+    from autopilot.agents.prompts import build_analyst_prompt
     from autopilot.agents.runner import run_agent
     from autopilot.domain.persists import atomic_write
 
@@ -214,11 +247,9 @@ async def _cmd_research(args: argparse.Namespace) -> int:
     research_dir.mkdir(parents=True, exist_ok=True)
     out_path = research_dir / f"{topic}.md"
 
-    result = await run_agent(
-        "researcher", build_researcher_prompt(topic, project), cfg, cwd=project
-    )
+    result = await run_agent("analyst", build_analyst_prompt(topic, project), cfg, cwd=project)
     if not result.success:
-        raise CLIError(reason=f"researcher call failed: {result.error or 'unknown error'}")
+        raise CLIError(reason=f"analyst call failed: {result.error or 'unknown error'}")
     atomic_write(out_path, result.output)
     print(f"wrote {out_path}")
     return 0
@@ -710,8 +741,10 @@ async def _dispatch(args: argparse.Namespace) -> int:
             return await _cmd_homer(args)
         case ("ralph", _):
             return await _cmd_ralph(args)
-        case ("research", _):
-            return await _cmd_research(args)
+        case ("analyse", _):
+            return await _cmd_analyse(args)
+        case ("lisa", _):
+            return await _cmd_lisa(args)
         case ("roadmap", "create"):
             return await _cmd_roadmap_create(args)
         case ("roadmap", "revise"):

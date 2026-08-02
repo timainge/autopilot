@@ -19,15 +19,18 @@ Domain hierarchy: `Roadmap → Goals → Sprints → Tasks`. Full model in
 
 ## Status
 
-Phases 1 + 2 complete and merged to `main`. Domain model refactor, CLI
-atomic commands, structural judge pass (all seven code-facing principles
-ALIGNED), and role-alignment lint are all landed. Smoke (S1–S5 + A01–A10),
-fault (F1–F3), role-alignment, and ast-lint suites are green.
+Phases 1 + 2 complete and merged to `main`, plus the duct-tape Frink
+hardening merges (phase-a…e: critic-feeds-planner, judge gating, model
+collapse). **Lisa (research loop) is implemented on branch `phase-5-lisa`**
+with all merge-gate suites green — landing per `.dev/plan.md` Stage L0.
 
-Active work: `.dev/phase-3-evals.md` (signal floor — driven by the
-notes-app real-smoke dossier). Phase 4 (archetypes) and Phase 5 (Lisa +
-Frink + additional domain models) follow. `.dev/phase-2.md` is retained
-as a historical record of the merge-gate work.
+Active work follows `.dev/plan.md`: L0 land Lisa → L1 repo tidy + naming
+refactor (retire `homer`/`smithers`; codenames only for self-driving
+loops; README rewrite) → L2 Frink v1 (frozen-rubric-per-experiment).
+Ralph is demoted from headline to supported build loop (kept for
+weaker/local models). Phase 3 (evals) and Phase 4 (archetypes) were never
+planned in detail and are **not scheduled** — see `.dev/vision-index.md`
+§Historical note.
 
 ---
 
@@ -35,23 +38,18 @@ as a historical record of the merge-gate work.
 
 Read in order. Each is canonical for its scope.
 
-1. `.dev/vision-index.md` — reading-order router over the consolidated
-   topic files. **Start here.** Most entries currently carry a
-   `[FOR APPROVAL]` marker pending a review pass on the April 2026
-   consolidation.
-2. `.dev/design.md` — implementation contract.
-3. `.dev/workflows.md` — CLI surface, entity lifecycle, loop composition.
-4. `.dev/smoke-tests.md` — tests the Phase 1 refactor passed to merge.
-5. `.dev/phase-3-evals.md` — **active**: signal floor (goal-sanity rubrics,
-   sprint inspection, scope-drift eval).
-6. `.dev/phase-4-archetypes.md` — next after Phase 3.
-7. `.dev/phase-5-lisa.md` / `.dev/phase-5-frink.md` /
-   `.dev/phase-5-additional-domain-models.md` — outer loops +
-   optional knowledge-entity domain.
+1. `.dev/vision-index.md` — reading-order router. **Start here.**
+2. `.dev/plan.md` — the active execution plan: positioning, naming rule,
+   stages L0–L2, merge gates.
+3. `.dev/design.md` — implementation contract (incl. CLI surface and
+   loop composition, §7).
+4. `.dev/phase-5-lisa.md` — Lisa spec (implemented; landing).
+5. `.dev/phase-5-frink.md` — Frink spec (next; see its amendment block).
+6. `.dev/smoke-tests.md` — smoke + fault suites.
+7. `.dev/duct-tape-frink-process.md` — manual Frink process; reference
+   for Stage L2 and for known issues.
 8. `.dev/backlog.md` — deferred one-liners; not plannable without
    promotion.
-9. `.dev/phase-2.md` — historical record of the merge-gate work; do not
-   reopen, do not plan from.
 
 Undocumented design decisions are a bug. If the docs are unclear, ask or
 update them — do not guess. Never plan from an archived doc under
