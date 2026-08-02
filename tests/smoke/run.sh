@@ -10,8 +10,8 @@ MODE="${1:-default}"
 
 if [ "$MODE" = "default" ]; then
   TESTS=(
-    "tests/smoke/s1-smithers.sh"
-    "tests/smoke/s2-homer.sh"
+    "tests/smoke/s1-sprint-prepare.sh"
+    "tests/smoke/s2-sprint-execute.sh"
     "tests/smoke/s3-ralph.sh"
     "tests/smoke/s4-failure.sh"
     "tests/smoke/s5-chaining.sh"

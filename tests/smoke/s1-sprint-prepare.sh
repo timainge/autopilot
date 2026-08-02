@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S1 — `smithers` produces a valid sprint directory.
+# S1 — `sprint prepare` produces a valid sprint directory.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -10,7 +10,7 @@ trap 'rm -rf "$DIR"' EXIT
 cp -r "$REPO_ROOT/tests/smoke/fixture/." "$DIR/"
 
 export AUTOPILOT_FAKE_AGENT="$DIR/.dev/fake-agents"
-uv run autopilot smithers "$DIR" > /dev/null
+uv run autopilot sprint prepare "$DIR" > /dev/null
 
 test -d "$DIR/.dev/sprints/sprint-001"
 test -f "$DIR/.dev/sprints/sprint-001/sprint-001.md"

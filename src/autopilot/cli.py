@@ -82,22 +82,14 @@ def _build_parser() -> argparse.ArgumentParser:
     def _proj(sp: argparse.ArgumentParser) -> None:
         sp.add_argument("project", nargs="?", default=None)
 
-    sp = sub.add_parser("smithers", help="plan a new sprint (planning loop)")
-    _proj(sp)
-    sp.add_argument("--goal", dest="goal_id", default=None)
-
-    sp = sub.add_parser("homer", help="execute a sprint")
-    _proj(sp)
-    sp.add_argument("--sprint", dest="sprint_id", default=None)
-
-    sp = sub.add_parser("ralph", help="plan/execute/evaluate until goals met")
+    sp = sub.add_parser("ralph", help="build loop: plan/execute/evaluate until goals met")
     _proj(sp)
 
-    sp = sub.add_parser("analyse", help="analyse a topic, write to .dev/research/")
+    sp = sub.add_parser("analyse", help="analyse a topic, write to .dev/analysis/")
     _proj(sp)
     sp.add_argument("--topic", default="general")
 
-    sp = sub.add_parser("lisa", help="research outer-loop: brief → enquiries → report")
+    sp = sub.add_parser("lisa", help="research loop: brief → enquiries → report")
     _proj(sp)
     brief_group = sp.add_mutually_exclusive_group(required=True)
     brief_group.add_argument("--brief", default=None, help="path to brief file")
@@ -118,6 +110,9 @@ def _build_parser() -> argparse.ArgumentParser:
     sp = sprint_sub.add_parser("plan", help="planner-only sprint draft")
     _proj(sp)
     sp.add_argument("--goal", dest="goal_id", default=None)
+    sp = sprint_sub.add_parser("prepare", help="plan + critique + judge to approval")
+    _proj(sp)
+    sp.add_argument("--goal", dest="goal_id", default=None)
     sp = sprint_sub.add_parser("critique", help="append critic revision_round to sprint")
     _proj(sp)
     sp.add_argument("--sprint", dest="sprint_id", default=None)
@@ -127,7 +122,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sp = sprint_sub.add_parser("evaluate", help="run goal evals + evaluator")
     _proj(sp)
     sp.add_argument("--sprint", dest="sprint_id", default=None)
-    sp = sprint_sub.add_parser("execute", help="alias for homer")
+    sp = sprint_sub.add_parser("execute", help="execute the approved sprint")
     _proj(sp)
     sp.add_argument("--sprint", dest="sprint_id", default=None)
 
@@ -151,22 +146,22 @@ def _build_parser() -> argparse.ArgumentParser:
 # ---------- loop commands ----------
 
 
-async def _cmd_smithers(args: argparse.Namespace) -> int:
-    from autopilot.orchestrator.plan import smithers
+async def _cmd_sprint_prepare(args: argparse.Namespace) -> int:
+    from autopilot.orchestrator.plan import sprint_prepare
 
     project = _resolve_project(args.project)
     cfg = load_config(project_root=project)
-    sprint = await smithers(project, cfg, goal_id=args.goal_id)
+    sprint = await sprint_prepare(project, cfg, goal_id=args.goal_id)
     print(f"{sprint.id} {sprint.status}")
     return 0 if sprint.status == "approved" else 1
 
 
-async def _cmd_homer(args: argparse.Namespace) -> int:
-    from autopilot.orchestrator.execute import homer
+async def _cmd_sprint_execute(args: argparse.Namespace) -> int:
+    from autopilot.orchestrator.execute import sprint_execute
 
     project = _resolve_project(args.project)
     cfg = load_config(project_root=project)
-    sprint = await homer(project, cfg, sprint_id=args.sprint_id)
+    sprint = await sprint_execute(project, cfg, sprint_id=args.sprint_id)
     print(f"{sprint.id} {sprint.status}")
     return 0 if sprint.status == "completed" else 1
 
@@ -243,9 +238,9 @@ async def _cmd_analyse(args: argparse.Namespace) -> int:
     project = _resolve_project(args.project)
     cfg = load_config(project_root=project)
     topic = args.topic or "general"
-    research_dir = project / ".dev" / "research"
-    research_dir.mkdir(parents=True, exist_ok=True)
-    out_path = research_dir / f"{topic}.md"
+    analysis_dir = project / ".dev" / "analysis"
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+    out_path = analysis_dir / f"{topic}.md"
 
     result = await run_agent("analyst", build_analyst_prompt(topic, project), cfg, cwd=project)
     if not result.success:
@@ -394,8 +389,8 @@ async def _cmd_sprint_plan(args: argparse.Namespace) -> int:
     from autopilot.domain.parse import parse_sprint
     from autopilot.domain.roadmap import Roadmap
     from autopilot.orchestrator.plan import (
+        _load_analysis,
         _load_prior_sprints,
-        _load_research,
         _parse_planner_output,
         next_sprint_id,
     )
@@ -411,13 +406,13 @@ async def _cmd_sprint_plan(args: argparse.Namespace) -> int:
         raise CLIError(reason="no pending goal available to plan")
 
     prior_sprints = _load_prior_sprints(project)
-    research = _load_research(project)
+    analysis = _load_analysis(project)
     sprint_id = next_sprint_id(project)
     sprint_dir = project / ".dev" / "sprints" / sprint_id
 
     result = await run_agent(
         "planner",
-        build_planner_prompt(roadmap, goal, prior_sprints, research, None),
+        build_planner_prompt(roadmap, goal, prior_sprints, analysis, None),
         cfg,
         cwd=project,
     )
@@ -502,7 +497,7 @@ async def _cmd_sprint_judge(args: argparse.Namespace) -> int:
     # Design choice: if no prior critique has been recorded, call critic inline
     # so the judge has something to work with. Alternative would be to error out,
     # but that makes the command fragile in ad-hoc use; the behaviour mirrors
-    # smithers which always runs critic before judge.
+    # sprint_prepare which always runs critic before judge.
     critic_notes = ""
     if sprint.revision_rounds and sprint.revision_rounds[-1].critic_notes:
         critic_notes = sprint.revision_rounds[-1].critic_notes
@@ -534,10 +529,10 @@ async def _cmd_sprint_judge(args: argparse.Namespace) -> int:
     sprint._save()
 
     # Side effect per workflows §4.2: when judge says READY on a planning sprint,
-    # approve it — mirrors smithers's behaviour exactly.
+    # approve it — mirrors sprint_prepare's behaviour exactly.
     if verdict.ready and sprint.status == "planning":
         sprint.approve()
-        # Also mark the goal in-progress, matching smithers.
+        # Also mark the goal in-progress, matching sprint_prepare.
         goal.mark_in_progress(sprint.id)
 
     print(f"{sprint.id} judge: {'READY' if verdict.ready else 'NOT_READY'} status={sprint.status}")
@@ -735,10 +730,6 @@ async def _dispatch(args: argparse.Namespace) -> int:
     cmd = args.cmd
     sub = getattr(args, "subcmd", None)
     match (cmd, sub):
-        case ("smithers", _):
-            return await _cmd_smithers(args)
-        case ("homer", _):
-            return await _cmd_homer(args)
         case ("ralph", _):
             return await _cmd_ralph(args)
         case ("analyse", _):
@@ -757,8 +748,10 @@ async def _dispatch(args: argparse.Namespace) -> int:
             return await _cmd_sprint_judge(args)
         case ("sprint", "evaluate"):
             return await _cmd_sprint_evaluate(args)
+        case ("sprint", "prepare"):
+            return await _cmd_sprint_prepare(args)
         case ("sprint", "execute"):
-            return await _cmd_homer(args)
+            return await _cmd_sprint_execute(args)
         case ("task", "run"):
             return await _cmd_task_run(args)
         case ("task", "retry"):

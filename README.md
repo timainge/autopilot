@@ -5,27 +5,32 @@
 [![Python](https://img.shields.io/pypi/pyversions/claude-autopilot)](https://pypi.org/project/claude-autopilot/)
 [![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://timainge.github.io/autopilot)
 
-Autopilot is the outer loop for Claude Code. You describe what needs building; autopilot plans it, executes it task by task, and checks whether the goal was met — without you sitting there typing "continue".
+Autonomous loops for Claude Code, persisted as legible filesystem state.
+
+Autopilot runs bounded, budget-capped loops — research, build, and (soon)
+experiment — where Claude Code agents do all the thinking and a thin
+Python harness owns lifecycle, retries, budgets, and persistence. Every
+plan, task, verdict, and finding lives as a markdown file under `.dev/`,
+so you can read, diff, and steer a run with nothing but a text editor.
 
 ---
 
-## How it works
+## The loops
 
-Autopilot runs a three-stage cycle:
+Codenames name self-driving loops — things that plan, act, evaluate, and
+repeat under a budget. Everything else is a plain `noun verb` command.
 
-```
-roadmap  →  plan  →  sprint
-  ↑                    |
-  └──── evaluate ←─────┘
-```
+| Loop | Command | Shape |
+|------|---------|-------|
+| **ralph** — build | `autopilot ralph` | plan sprint → execute tasks → evaluate goal → repeat until goals met |
+| **lisa** — research | `autopilot lisa` | decompose brief → parallel enquiries → synthesise → judge coverage → repeat until satisfied |
+| **frink** — experiment | *in development* | plan lap → run in branch → judge against frozen rubric → merge/discard → repeat |
 
-**Roadmap** — defines the goal, the shipping target, and what "done" looks like (validation commands). Optional but makes everything downstream sharper.
-
-**Plan** — a planner agent reads the roadmap and writes `.dev/sprint.md`: a set of structured tasks. A critic reviews it, a judge approves it. No execution until the plan is approved.
-
-**Sprint** — each task in the manifest gets a fresh Claude Code session. The worker implements, commits, and marks the task done. Failed tasks retry up to a configured limit.
-
-**Ralph** is the outer loop that drives this cycle autonomously — planning a sprint, executing it, running validation, evaluating whether the goal is met, and repeating until it is.
+Ralph's heavier scaffolding — a fresh Claude Code session per task,
+retries, adversarial critic/judge gates on every plan — is deliberate.
+Frontier models often don't need that much structure; smaller, local, or
+open-source models do. The harness is model-agnostic where the model is
+weakest.
 
 ---
 
@@ -40,244 +45,187 @@ uv pip install claude-autopilot
 Requires a Claude API key from [console.anthropic.com](https://console.anthropic.com):
 
 ```bash
-ANTHROPIC_API_KEY=your-key-here autopilot build .
+ANTHROPIC_API_KEY=your-key-here autopilot ralph .
 ```
 
-> **Note:** Don't export `ANTHROPIC_API_KEY` globally in your shell — Claude Code picks it up and will bill interactive sessions at API rates instead of your subscription. Pass it inline or via a `.env` file.
+> **Note:** Don't export `ANTHROPIC_API_KEY` globally in your shell — Claude Code picks it up
+> and will bill interactive sessions at API rates instead of your subscription. Pass it inline
+> or via a `.env` file.
 
 ---
 
 ## Quick start
 
-**One-shot build** — plan then execute in a single command:
+**Build loop** — define goals, then let ralph drive:
 
 ```bash
-autopilot build .
-autopilot build --context spec.md .   # seed the planner with a spec or TODO list
+autopilot roadmap create .    # agent writes .dev/roadmap.md + goal files
+autopilot ralph .             # prepare sprint → execute → evaluate, repeat
 ```
 
-**Step by step** — more control:
+**Step by step** — same machinery, one stage at a time:
 
 ```bash
-autopilot roadmap .          # optional: build a goal + validate spec
-autopilot plan .             # write + approve the task manifest
-autopilot sprint .           # execute the approved manifest
+autopilot sprint prepare .    # plan + critique + judge until approved
+autopilot sprint execute .    # run each task in a fresh session
+autopilot sprint evaluate .   # judge the goal against its evals
 ```
 
-**Fully autonomous loop** — keeps going until the goal is met:
+**Research loop** — deep research with a coverage judge:
 
 ```bash
-autopilot roadmap .          # required for ralph: defines the goal and validate commands
-autopilot ralph .            # plan → sprint → evaluate, repeat
+autopilot lisa . --brief-text "How should we approach X?"
+autopilot lisa . --brief brief.md --max-iterations 5
+```
+
+Lisa decomposes the brief into enquiries, researches them in parallel,
+synthesises a report, and iterates on coverage gaps until the judge is
+satisfied or budget/iteration caps bind. Output lands in
+`.dev/research/<slug>/` — `report.md`, `summary.md`, and one file per
+enquiry. Drop a `steer.md` into the run directory mid-flight to redirect
+the next iteration without stopping the loop.
+
+Feed research into a build:
+
+```bash
+autopilot roadmap create . --research .dev/research/<slug>/summary.md
 ```
 
 ---
 
 ## Commands
 
-### `roadmap`
+### Loops
 
-Writes `.dev/roadmap.md` — the goal, archetype, validation commands, and shipping phases. Used
-as the primary input for planning and as the termination condition for ralph.
+- `autopilot ralph [<project>]` — build loop. Requires `.dev/roadmap.md`.
+  Stops on goals met, an escalated plan, a stuck sprint, or `max_sprints`.
+- `autopilot lisa [<project>] (--brief <file> | --brief-text <str>) [--slug <s>] [--max-iterations <n>]`
+  — research loop.
 
-```bash
-autopilot roadmap .                          # assess the project and write a roadmap
-autopilot roadmap --deep .                   # run deep research (web + ecosystem) first
-autopilot roadmap --topic "question" .       # research a specific question → .dev/research/
-autopilot roadmap --topic-file brief.md .    # same, from a file
-```
+### Composed commands
 
-### `plan`
+- `autopilot sprint prepare [--goal <goal-id>]` — planner drafts a
+  sprint; critic reviews adversarially; judge approves or sends it back
+  (up to `max_judge_rounds`). Only approved sprints can execute.
+- `autopilot sprint execute [--sprint <id>]` — runs each task of the
+  approved sprint in a fresh Claude Code session, retrying failures up
+  to `max_task_attempts`, running each task's evals after each attempt.
 
-Runs the planner → critic → judge pipeline and writes an approved `.dev/sprint.md`.
+### Atomic commands
 
-```bash
-autopilot plan .                             # auto-runs roadmap first if it doesn't exist
-autopilot plan --context TODO.md .           # seed with a spec or todo list, skip research
-```
-
-The critic reviews the plan adversarially. The judge evaluates readiness: if NOT_READY, the
-planner revises once with the judge's feedback and the judge re-evaluates. When approved,
-`approved: true` is set in the manifest automatically.
-
-### `sprint`
-
-Executes the approved `.dev/sprint.md` task manifest. Each task spawns a fresh Claude Code
-session.
+One agent call (or one state transition) each:
 
 ```bash
-autopilot sprint .
-autopilot sprint --auto-approve .            # skip the approval check
-autopilot sprint --resume .                  # reset stuck projects, retry failed tasks
+autopilot roadmap create [--research <path>]   # write roadmap + goals
+autopilot roadmap revise                       # revise existing roadmap
+autopilot sprint plan [--goal <goal-id>]       # planner only, no gates
+autopilot sprint critique [--sprint <id>]      # critic pass on a draft
+autopilot sprint judge [--sprint <id>]         # judge verdict on a draft
+autopilot sprint evaluate [--sprint <id>]      # goal evals + evaluator
+autopilot task run <task-file>                 # one task, with retries
+autopilot task retry <task-file>               # retry a failed task
+autopilot eval show <ref>                      # print eval payload
+autopilot eval run <ref>                       # execute eval(s), record runs
+autopilot analyse [--topic <t>]                # codebase analysis → .dev/analysis/
 ```
 
-### `build`
-
-Shorthand for `plan` + `sprint --auto-approve` in one command.
-
-```bash
-autopilot build .
-autopilot build --context spec.md .
-```
-
-### `ralph`
-
-The fully autonomous outer loop. Requires `.dev/roadmap.md` (run `autopilot roadmap .` first).
-
-```bash
-autopilot ralph .
-autopilot ralph --auto-approve .
-```
-
-Each iteration: plan a sprint → execute tasks → run `validate` commands from roadmap frontmatter
-→ evaluate whether the goal is met. Stops when:
-- The evaluator returns `GOAL_MET`
-- Tasks fail (appends a deferred investigation task to `roadmap.md`)
-- `max_sprints` is reached
-
-### `portfolio`
-
-Builds a cross-project index — goal, tech stack, current state, and prioritised quick wins.
-Auto-generates `.dev/roadmap.md` for any project that lacks one before building.
-
-```bash
-autopilot portfolio --scan ~/Projects
-autopilot portfolio path/to/proj-a path/to/proj-b
-```
-
-Output: `<scan_dir>/.dev/portfolio.md`.
+Eval refs address evals by entity: `task:<sprint-id>/<task-id>[#i]`,
+`sprint:<sprint-id>[#i]`, `goal:<goal-id>[#i]`.
 
 ---
 
-## Multi-project scanning
+## The `.dev/` directory
 
-Every command works with `--scan` to operate across a directory of projects:
+`.dev/` is live orchestration state — what is planned, in progress,
+succeeded, or failed at any moment. Add it to `.gitignore`.
 
-```bash
-autopilot roadmap --scan ~/Projects
-autopilot plan --scan ~/Projects
-autopilot sprint --auto-approve --scan ~/Projects
-autopilot ralph --scan ~/Projects
+```
+.dev/
+  roadmap.md                  # goals, archetype, narrative
+  goals/goal-<id>.md          # one file per goal: status, evals, history
+  sprints/sprint-NNN/
+    sprint-NNN.md             # sprint frontmatter + revision rounds
+    task-NNN.md               # one file per task: spec, attempts, evals
+  research/<slug>/            # lisa runs: run.md, enquiry-*.md, report.md,
+                              #   gaps.md, summary.md, steer.md (yours)
+  analysis/<topic>.md         # analyse output
+  logs/run-*.jsonl            # structured agent-call traces
 ```
 
-Repos you don't own are skipped by default. Autopilot compares the git remote owner against
-your username (checked in order: `AUTOPILOT_GIT_USER` env, `git config autopilot.user`, `gh`
-CLI auth). Use `--all` to include forks and clones.
+Domain hierarchy: **Roadmap → Goals → Sprints → Tasks**. Entities own
+their persistence — every mutation writes its file atomically, so a
+`kill -9` mid-run leaves legible state and re-running resumes cleanly.
 
 ---
 
 ## Configuration
 
-### Per-project: `autopilot.toml`
+Layered: defaults < `~/.config/autopilot/config.toml` <
+`<project>/.dev/autopilot.toml`. Flat TOML keys, validated strictly —
+unknown keys are an error.
 
 ```toml
-[autopilot]
-max_budget_usd = 10.0
-max_task_attempts = 3
-max_sprints = 5
+# .dev/autopilot.toml
+max_task_attempts = 2
+max_judge_rounds = 2
+max_sprints = 10
+max_cost_per_call_usd = 2.0
+max_cost_per_run_usd = 50.0
+
+# per-role models
+worker_model = "claude-sonnet-4-6"
+planner_model = "claude-opus-4-7"
+
+# lisa
+max_research_iterations = 3
+max_enquiries_per_iteration = 6
+max_parallel_research = 3
+max_cost_per_research_run_usd = 5.0
 ```
 
-### Global: `~/.config/autopilot/config.toml`
-
-Same format. Per-project config takes precedence.
-
-### Manifest frontmatter
-
-`.dev/sprint.md` and `.dev/roadmap.md` use YAML frontmatter for structured config:
-
-| Field | File | Default | Description |
-|-------|------|---------|-------------|
-| `name` | sprint | dir name | Project display name |
-| `approved` | sprint | false | Approval gate — must be true before sprint runs |
-| `status` | sprint | pending | pending / active / stuck / completed |
-| `max_budget_usd` | sprint | 5.0 | Budget cap per sprint |
-| `max_task_attempts` | sprint | 3 | Max retries per failed task |
-| `goal` | roadmap | — | Goal type: launch / publish / complete |
-| `archetype` | roadmap | — | Project archetype (e.g. `python-cli`) |
-| `validate` | roadmap | — | Shell commands that must pass for goal completion |
-
-Add `.dev/` to `.gitignore` — it contains orchestration state, not source code.
-
-### Task format
-
-Tasks in `.dev/sprint.md` are level-3 headings with a checkbox, a slug ID, and an optional
-body:
-
-```markdown
-### [ ] create-api-client
-
-Implement `src/client.py` with a `get()` and `post()` method using `httpx`.
-Use the base URL from `config.py`. Raise `APIError` on non-2xx responses.
-
-**Done**: `pytest tests/test_client.py` passes.
-
----
-
-### [ ] add-retry-logic [depends: create-api-client]
-
-Add exponential backoff to the client using `tenacity`. Max 3 retries,
-starting at 1s. Log each retry attempt at WARNING level.
-
----
-
-### [x] completed-task
-```
-
-- IDs are the heading text — must be `lowercase-with-dashes`
-- Dependencies: `[depends: task-id]` or `[depends: a, b]` inline in the heading
-- Retry metadata (`[attempts: N]`, `[status: failed]`, `[error: ...]`) is written by autopilot — don't edit manually
+`AUTOPILOT_MODEL=haiku|sonnet|opus` collapses every role to one model —
+useful for stress-testing prompts on a cheaper model, or pointing the
+whole harness at a single capability tier.
 
 ---
 
 ## Agent roles
 
-Agent configs live in `src/autopilot/agents/*.md` — YAML frontmatter + system prompt. Sessions
-appear in Claude Code's `/resume` history as `autopilot/projectname/role`.
+Each role is a markdown file (`src/autopilot/agents/roles/*.md`): YAML
+frontmatter (tools, permission mode, budget) + system prompt.
 
-| Role | Invoked by | What it does |
-|------|-----------|--------------|
-| `planner` | `plan`, `build`, `ralph` | Writes `.dev/sprint.md` |
-| `critic` | `plan`, `build`, `ralph` | Reviews the plan adversarially |
-| `judge` | `plan`, `build`, `ralph` | Approves or rejects the plan |
-| `worker` | `sprint`, `build`, `ralph` | Executes a task, commits |
-| `roadmap` | `roadmap`, `ralph` | Writes `.dev/roadmap.md`; evaluates goal completion |
-| `researcher` | (lazy, before `plan`) | Analyses codebase → `.dev/project-summary.md` |
-| `deep-researcher` | `roadmap --deep` | Extended web research before roadmapping |
-| `portfolio` | `portfolio` | Cross-project index → `.dev/portfolio.md` |
-
-### Custom roles
-
-Drop a markdown file into `agents/` (or use `--agents-dir` to point to a custom directory):
-
-```markdown
----
-name: reviewer
-description: Reviews completed tasks for quality
-allowed_tools: [Read, Glob, Bash, Grep]
-permission_mode: default
-max_turns: 20
-max_budget_usd: 0.50
----
-
-You are a code reviewer. You read recently completed tasks and assess quality...
-```
+| Role | Used by | Owns |
+|------|---------|------|
+| `planner` | `sprint plan/prepare`, `ralph` | drafting the sprint + tasks |
+| `critic` | `sprint critique/prepare`, `ralph` | adversarial plan review |
+| `judge` | `sprint judge/prepare`, `ralph` | READY / NOT_READY verdict |
+| `worker` | `sprint execute`, `task run`, `ralph` | implementing one task |
+| `evaluator` | `sprint evaluate`, `ralph` | goal-achievement verdict |
+| `roadmap` | `roadmap create/revise` | roadmap + goal files |
+| `analyst` | `analyse` | codebase analysis |
+| `decomposer` | `lisa` | brief → enquiry list |
+| `researcher` | `lisa` | one enquiry → findings + sources |
+| `synthesiser` | `lisa` | enquiries → report / summary |
+| `research-judge` | `lisa` | SATISFIED / INSUFFICIENT + gaps |
 
 ---
 
 ## Design notes
 
-**Why the Agent SDK, not CLI pipes?**
-The SDK wraps Claude Code programmatically — same tools, proper message streaming, error
-handling. Each `query()` call is a fresh Claude Code session with clean context.
+**Why the Agent SDK, not CLI pipes?** The SDK wraps Claude Code
+programmatically — same tools, streaming, error handling. Each call is a
+fresh session with clean context.
 
-**Why sequential tasks, not parallel?**
-Simpler to debug, cheaper, and avoids merge conflicts. Parallel execution via git worktrees is
-planned for a future release.
+**Why markdown state instead of a database?** The state doubles as
+documentation. A human can read a sprint, edit a goal, or steer a
+research run with any editor — and agents parse it strictly (unknown
+frontmatter keys are errors, not warnings).
 
-**Why a human approval gate?**
-The judge evaluates readiness, but a human must explicitly set `approved: true` (or pass
-`--auto-approve`). This prevents runaway execution on half-baked plans.
+**Why an adversarial gate on plans?** A bad plan executed autonomously
+is expensive. The critic and judge are separate roles with separate
+prompts; the judge can send a plan back with feedback before anything
+runs.
 
-**Why markdown manifests?**
-The manifest doubles as project documentation. YAML frontmatter gives structured config; the
-markdown body gives context that humans and agents can both read naturally.
+**Why sequential tasks?** Simpler to debug, cheaper, no merge
+conflicts. Parallelism is planned at the experiment-loop level (branch
+per lap) rather than the task level.

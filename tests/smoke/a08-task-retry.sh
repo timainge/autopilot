@@ -9,14 +9,14 @@ DIR="$(mktemp -d)"
 trap 'rm -rf "$DIR"' EXIT
 cp -r "$REPO_ROOT/tests/smoke/fixture-impossible/." "$DIR/"
 
-# fixture-impossible's task eval fails (`false`). Run homer to drive it to
+# fixture-impossible's task eval fails (`false`). Run sprint execute to drive it to
 # status=failed, then retry (using a fixture where it will still fail —
 # we're only asserting the retry appended an attempt + remained `failed`).
 export AUTOPILOT_FAKE_AGENT="$DIR/.dev/fake-agents"
 
-uv run autopilot smithers "$DIR" > /dev/null
+uv run autopilot sprint prepare "$DIR" > /dev/null
 set +e
-uv run autopilot homer "$DIR" > /dev/null
+uv run autopilot sprint execute "$DIR" > /dev/null
 set -e
 
 TASK_FILE="$(ls "$DIR/.dev/sprints/sprint-001"/task-*.md | head -1)"
@@ -41,7 +41,7 @@ CLEAN="$(mktemp -d)"
 trap 'rm -rf "$DIR" "$CLEAN"' EXIT
 cp -r "$REPO_ROOT/tests/smoke/fixture/." "$CLEAN/"
 export AUTOPILOT_FAKE_AGENT="$CLEAN/.dev/fake-agents"
-uv run autopilot smithers "$CLEAN" > /dev/null
+uv run autopilot sprint prepare "$CLEAN" > /dev/null
 CLEAN_TASK="$(ls "$CLEAN/.dev/sprints/sprint-001"/task-*.md | head -1)"
 set +e
 uv run autopilot task retry "$CLEAN_TASK" > /dev/null 2> "$CLEAN/err.log"

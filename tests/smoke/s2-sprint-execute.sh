@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S2 — `homer` executes tasks to completion.
+# S2 — `sprint execute` executes tasks to completion.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -10,8 +10,8 @@ trap 'rm -rf "$DIR"' EXIT
 cp -r "$REPO_ROOT/tests/smoke/fixture/." "$DIR/"
 
 export AUTOPILOT_FAKE_AGENT="$DIR/.dev/fake-agents"
-uv run autopilot smithers "$DIR" > /dev/null
-uv run autopilot homer "$DIR" > /dev/null
+uv run autopilot sprint prepare "$DIR" > /dev/null
+uv run autopilot sprint execute "$DIR" > /dev/null
 
 $YQ "$DIR/.dev/sprints/sprint-001/sprint-001.md" '.status' | grep -qx "completed"
 

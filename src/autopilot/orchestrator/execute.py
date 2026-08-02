@@ -118,7 +118,7 @@ async def run_task(
         return
 
 
-async def homer(
+async def sprint_execute(
     project: Path,
     cfg: AutopilotConfig,
     *,
