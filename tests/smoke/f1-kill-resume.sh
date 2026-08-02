@@ -16,6 +16,9 @@ uv run autopilot sprint prepare "$DIR" > /dev/null
 AUTOPILOT_FAKE_DELAY_MS=5000 uv run autopilot sprint execute "$DIR" > /dev/null &
 PID=$!
 sleep 3    # enough to start a task + stall inside run_agent (fake-delay = 5s)
+# Kill uv's python child first — kill -9 on uv alone orphans it, and the
+# orphan later writes into the deleted temp dir (stray error after the suite).
+pkill -9 -P $PID 2>/dev/null || true
 kill -9 $PID 2>/dev/null || true
 wait $PID 2>/dev/null || true
 
