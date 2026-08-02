@@ -149,6 +149,20 @@ def _build_parser() -> argparse.ArgumentParser:
     _proj(sp)
     sp.add_argument("exp_id", nargs="?", default=None)
 
+    study = sub.add_parser("study", help="matrix validation: fixed cells, frozen scorer, no judge")
+    study_sub = study.add_subparsers(dest="subcmd", required=True)
+    sp = study_sub.add_parser("run", help="run (or resume) a study from a spec file")
+    _proj(sp)
+    sp.add_argument(
+        "--spec", required=True, help="path to study spec (matrix/run/scorer + objective)"
+    )
+    sp = study_sub.add_parser("status", help="print study frontmatter + cells")
+    _proj(sp)
+    sp.add_argument("study_id", nargs="?", default=None)
+    sp = study_sub.add_parser("report", help="re-run the analyst on a study")
+    _proj(sp)
+    sp.add_argument("study_id", nargs="?", default=None)
+
     eval_ = sub.add_parser("eval", help="eval inspection / manual execution")
     eval_sub = eval_.add_subparsers(dest="subcmd", required=True)
     sp = eval_sub.add_parser("show", help="print eval payload to stdout")
@@ -338,6 +352,63 @@ async def _cmd_frink_review(args: argparse.Namespace) -> int:
     if review is None or not review.is_file():
         raise CLIError(reason="reviewer produced no review.md")
     print(f"wrote {review}")
+    return 0
+
+
+def _resolve_study_dir(project: Path, study_id: str | None) -> Path:
+    root = project / ".dev" / "studies"
+    if study_id:
+        d = root / study_id
+        if not (d / f"{study_id}.md").is_file():
+            raise CLIError(reason=f"no study at {d}")
+        return d
+    candidates = sorted(d for d in root.glob("study-*") if (d / f"{d.name}.md").is_file())
+    if not candidates:
+        raise CLIError(reason=f"no studies under {root}")
+    return candidates[-1]
+
+
+async def _cmd_study_run(args: argparse.Namespace) -> int:
+    from autopilot.orchestrator.study import study_run
+
+    project = _resolve_project_loose(args.project)
+    cfg = load_config(project_root=project)
+    outcome = await study_run(project, cfg, Path(args.spec))
+    st = outcome.study
+    done = sum(1 for c in st.cells if c.status == "completed")
+    print(f"{st.id} {st.status} cells={done}/{len(st.cells)} cost=${st.cost_usd:.2f}")
+    return 0 if st.status == "completed" else 1
+
+
+async def _cmd_study_status(args: argparse.Namespace) -> int:
+    from autopilot.domain.study import Study
+
+    project = _resolve_project_loose(args.project)
+    st = Study.load(_resolve_study_dir(project, args.study_id))
+    print(f"id: {st.id}")
+    print(f"status: {st.status}")
+    print(f"repetitions: {st.repetitions}")
+    print(f"cost_usd: {st.cost_usd:.2f}")
+    print(f"cells: {len(st.cells)}")
+    for c in st.cells:
+        params = ",".join(f"{k}={v}" for k, v in c.params.items())
+        detail = c.error if c.status == "failed" else ""
+        print(f"  {c.id} [{c.status}] {params} {detail or ''}".rstrip())
+    if st.summary:
+        print(f"summary: {st.summary}")
+    return 0
+
+
+async def _cmd_study_report(args: argparse.Namespace) -> int:
+    from autopilot.domain.study import Study
+    from autopilot.orchestrator.study import run_analyst
+
+    project = _resolve_project_loose(args.project)
+    cfg = load_config(project_root=project)
+    st = Study.load(_resolve_study_dir(project, args.study_id))
+    if not await run_analyst(st, cfg, project):
+        raise CLIError(reason="analyst produced no report.md")
+    print(f"wrote {st._dir / 'report.md'}")
     return 0
 
 
@@ -853,6 +924,12 @@ async def _dispatch(args: argparse.Namespace) -> int:
             return await _cmd_frink_status(args)
         case ("frink", "review"):
             return await _cmd_frink_review(args)
+        case ("study", "run"):
+            return await _cmd_study_run(args)
+        case ("study", "status"):
+            return await _cmd_study_status(args)
+        case ("study", "report"):
+            return await _cmd_study_report(args)
         case ("eval", "show"):
             return await _cmd_eval_show(args)
         case ("eval", "run"):

@@ -7,11 +7,12 @@
 
 Autonomous loops for Claude Code, persisted as legible filesystem state.
 
-Autopilot runs bounded, budget-capped loops — research, build, and (soon)
+Autopilot runs bounded, budget-capped loops — research, build, and
 experiment — where Claude Code agents do all the thinking and a thin
-Python harness owns lifecycle, retries, budgets, and persistence. Every
-plan, task, verdict, and finding lives as a markdown file under `.dev/`,
-so you can read, diff, and steer a run with nothing but a text editor.
+Python harness owns lifecycle, retries, budgets, and persistence, plus a
+non-loop **study** runner for fixed validation matrices. Every plan,
+task, verdict, and finding lives as a markdown file under `.dev/`, so
+you can read, diff, and steer a run with nothing but a text editor.
 
 ---
 
@@ -105,6 +106,15 @@ autopilot roadmap create . --research .dev/research/<slug>/summary.md
   — experiment loop. See [Running an experiment](#running-an-experiment-frink)
   for the full walkthrough; `frink status` and `frink review` inspect a
   run and re-run the reviewer.
+
+### Validation runs (not loops)
+
+- `autopilot study run [<project>] --spec <file>` — matrix validation:
+  a **predefined** grid of cells (cross-product × repetitions), each a
+  shell-command treatment scored by a frozen scorer. No judge, no
+  iteration — an analyst agent writes an evidence-bound `report.md` when
+  all cells are terminal. See [Running a study](#running-a-study).
+  `study status` and `study report` inspect and re-analyse.
 
 ### Composed commands
 
@@ -244,6 +254,60 @@ Caps and models come from config: `frink_max_iterations` (20),
 
 ---
 
+## Running a study
+
+A **study** is Frink's non-loop sibling: use Frink to *develop* an
+artifact (hill-climb, judge-gated), then a study to *validate* it across
+a fixed matrix — agents × models × conditions — with the same frozen
+scorer. Nothing is decided between cells; the plan is fixed at spec
+time, and the product is the analyst's report.
+
+Author a spec:
+
+```markdown
+<!-- study.md -->
+---
+matrix:
+  agent: [claude-code, codex]
+  condition: [skill-on, skill-off]
+repetitions: 2
+run: "scripts/generate.sh {agent} {condition} {cell_dir}"
+scorer: "uv run python scorer/score.py --cell {cell_dir}"
+---
+
+Does fact-extraction-before-writing improve groundedness, and does the
+benefit transfer across agents?
+```
+
+- Cells are the cross-product of the matrix × `repetitions`
+  (capped by `study_max_cells`, default 64). Repetitions exist so the
+  analyst can compare deltas against within-cell spread — n≥2 keeps you
+  honest about noise.
+- **Treatments are shell commands**, so non-Claude agents are
+  first-class: a codex cell shells out to the codex CLI exactly like a
+  claude cell shells out to `claude`. Placeholders: matrix keys plus
+  `{cell_dir}`, `{project}`, `{rep}`.
+- The **scorer is frozen** and must write `<cell_dir>/scores.json`; that
+  JSON object becomes the cell's recorded signals (a numeric `cost_usd`
+  key is absorbed into cost accounting). Failed treatment/scorer/JSON →
+  the cell is `failed`, the study continues, exit code is 1.
+
+```bash
+autopilot study run . --spec study.md     # run (or resume) the matrix
+autopilot study status .                  # per-cell status + signals
+autopilot study report .                  # re-run the analyst
+```
+
+Results land in `.dev/studies/study-NNN/`: one `cell-*.md` per cell
+(params, signals, timings), `cells/<id>/` working dirs, and `report.md`
+— per-cell table, findings with confidence levels justified against the
+noise floor, and honest caveats ("no clear effect" is a valid finding).
+Re-running an identical spec resumes: completed cells are kept, failed
+and interrupted cells re-run. A *completed* study is terminal — re-running
+its spec starts a fresh study.
+
+---
+
 ## The `.dev/` directory
 
 `.dev/` is live orchestration state — what is planned, in progress,
@@ -260,6 +324,8 @@ succeeded, or failed at any moment. Add it to `.gitignore`.
                               #   gaps.md, summary.md, steer.md (yours)
   experiments/exp-NNN/        # frink runs: exp-NNN.md, lap-NNN.md,
                               #   kb/, review.md
+  studies/study-NNN/          # study runs: study-NNN.md, cell-*.md,
+                              #   cells/, report.md
   analysis/<topic>.md         # analyse output
   logs/run-*.jsonl            # structured agent-call traces
 ```
@@ -328,6 +394,7 @@ frontmatter (tools, permission mode, budget) + system prompt.
 | `frink-runner` | `frink` | plans + executes one lap on its branch |
 | `frink-stop-judge` | `frink` | merge / discard / iterate verdict |
 | `frink-reviewer` | `frink` | evidence-bound review on terminal state |
+| `study-analyst` | `study` | per-cell comparison report, noise-floor honest |
 
 ---
 

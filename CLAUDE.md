@@ -47,11 +47,13 @@ Read in order. Each is canonical for its scope.
 3. `.dev/design.md` — implementation contract (incl. CLI surface and
    loop composition, §7).
 4. `.dev/phase-5-lisa.md` — Lisa spec (implemented; landing).
-5. `.dev/phase-5-frink.md` — Frink spec (next; see its amendment block).
-6. `.dev/smoke-tests.md` — smoke + fault suites.
-7. `.dev/duct-tape-frink-process.md` — manual Frink process; reference
-   for Stage L2 and for known issues.
-8. `.dev/backlog.md` — deferred one-liners; not plannable without
+5. `.dev/phase-5-frink.md` — Frink spec (landed; see its amendment block).
+6. `.dev/phase-6-study.md` — Study spec (matrix validation runner — not
+   a loop; frink develops, study validates).
+7. `.dev/smoke-tests.md` — smoke + fault suites.
+8. `.dev/duct-tape-frink-process.md` — manual Frink process; reference
+   for known issues.
+9. `.dev/backlog.md` — deferred one-liners; not plannable without
    promotion.
 
 Undocumented design decisions are a bug. If the docs are unclear, ask or

@@ -80,6 +80,11 @@ class AutopilotConfig:
     frink_stop_judge_model: str = "claude-opus-4-7"
     frink_reviewer_model: str = "claude-opus-4-7"
 
+    # Study (matrix validation runner)
+    study_cell_timeout_sec: int = 1800
+    study_max_cells: int = 64
+    study_analyst_model: str = "claude-opus-4-7"
+
     # Paths (computed post-resolution, not user-set)
     project_root: Path = field(default_factory=Path.cwd)
 
