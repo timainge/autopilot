@@ -845,8 +845,7 @@ def build_frink_reviewer_prompt(exp: Experiment) -> str:
     """Reviewer prompt: full experiment + laps + kb. Runs once, on terminal state."""
     laps_text = "\n".join(_prior_lap_summary(x) for x in exp.laps) or "(no laps)"
     sections = [
-        f"Review completed experiment {exp.id} (mode: {exp.mode}, "
-        f"status: {exp.status}).",
+        f"Review completed experiment {exp.id} (mode: {exp.mode}, status: {exp.status}).",
         "",
         _fence("OBJECTIVE", exp.objective.strip()),
         "",

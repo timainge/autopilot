@@ -141,9 +141,7 @@ async def _hil_approve(
     pending = lap._path.with_name(f"{lap.id}.pending.md")
     atomic_write(
         pending,
-        yaml.safe_dump(
-            {"proposed_verdict": verdict, "proposed_reason": reason}, sort_keys=False
-        ),
+        yaml.safe_dump({"proposed_verdict": verdict, "proposed_reason": reason}, sort_keys=False),
     )
     waited = 0
     while waited < cfg.frink_hil_timeout_sec:
@@ -230,9 +228,7 @@ async def frink(
     try:
         for _ in range(cfg.frink_max_iterations):
             if exp.cost_usd >= cfg.frink_max_cost_per_run_usd:
-                exp.exhaust(
-                    f"budget: ${exp.cost_usd:.2f} >= ${cfg.frink_max_cost_per_run_usd:.2f}"
-                )
+                exp.exhaust(f"budget: ${exp.cost_usd:.2f} >= ${cfg.frink_max_cost_per_run_usd:.2f}")
                 break
 
             lap_id = _next_lap_id(exp)
@@ -296,9 +292,7 @@ async def frink(
                     )
             await gitops.checkout(project, head)
 
-            lap = Lap(
-                id=lap_id, experiment_id=exp.id, spec=spec, branch=branch, started_at=started
-            )
+            lap = Lap(id=lap_id, experiment_id=exp.id, spec=spec, branch=branch, started_at=started)
             assert exp._dir is not None
             lap._path = exp._dir / f"{lap_id}.md"
             lap._save()

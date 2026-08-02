@@ -51,9 +51,7 @@ class Lap:
             )
 
     @persists
-    def record(
-        self, signals: dict[str, Any], verdict: str, reason: str, cost_usd: float
-    ) -> None:
+    def record(self, signals: dict[str, Any], verdict: str, reason: str, cost_usd: float) -> None:
         if self.verdict != "pending":
             raise InvalidTransition(
                 entity_type="lap",
