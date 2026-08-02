@@ -28,7 +28,10 @@ if [ "$MODE" = "default" ]; then
     "tests/smoke/a11-lisa-single-pass.sh"
     "tests/smoke/a12-lisa-iterate.sh"
     "tests/smoke/a13-lisa-steer.sh"
+    "tests/smoke/frink-basic.sh"
+    "tests/smoke/frink-hil.sh"
     "tests/smoke/roundtrip.sh"
+    "tests/smoke/roundtrip-frink.sh"
     "tests/smoke/strict-parse.sh"
     "tests/smoke/project-inference.sh"
     "tests/smoke/ast-lint.sh"
@@ -39,6 +42,7 @@ elif [ "$MODE" = "fault" ]; then
     "tests/smoke/f1-kill-resume.sh"
     "tests/smoke/f2-atomic-write.sh"
     "tests/smoke/f3-concurrent.sh"
+    "tests/smoke/frink-fault-kill.sh"
   )
 else
   echo "usage: $0 [default|fault]" >&2

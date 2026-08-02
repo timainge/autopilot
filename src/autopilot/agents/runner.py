@@ -109,6 +109,7 @@ async def run_agent(
     *,
     cwd: Path | None = None,
     run_id: RunId | None = None,
+    model: str | None = None,
 ) -> AgentResult:
     """Invoke a role via the Claude Agent SDK. See design §8.
 
@@ -123,6 +124,10 @@ async def run_agent(
     """
     cwd = cwd if cwd is not None else Path.cwd()
     role_cfg = _load_role(role)
+    if model:
+        # Caller-supplied model (e.g. frink's judge-independence contract)
+        # beats role frontmatter.
+        role_cfg.model = model
 
     emit(
         "agent.call.start",

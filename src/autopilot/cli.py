@@ -133,6 +133,22 @@ def _build_parser() -> argparse.ArgumentParser:
     sp = task_sub.add_parser("retry", help="retry a failed task")
     sp.add_argument("task_file")
 
+    frink = sub.add_parser("frink", help="experiment loop: rubric-frozen laps until done")
+    frink_sub = frink.add_subparsers(dest="subcmd", required=True)
+    sp = frink_sub.add_parser("start", help="start (or resume) an experiment")
+    _proj(sp)
+    sp.add_argument("--mode", required=True, choices=["build", "tune", "research"])
+    sp.add_argument("--objective", required=True, help="objective text, or @file.md")
+    sp.add_argument("--rubric", required=True, help="frozen rubric text, or @file.md")
+    sp.add_argument("--goal", dest="goal_id", default=None)
+    sp.add_argument("--hil", action="store_true", help="human-in-the-loop verdict approval")
+    sp = frink_sub.add_parser("status", help="print experiment frontmatter + laps + cost")
+    _proj(sp)
+    sp.add_argument("exp_id", nargs="?", default=None)
+    sp = frink_sub.add_parser("review", help="re-run the reviewer on an experiment")
+    _proj(sp)
+    sp.add_argument("exp_id", nargs="?", default=None)
+
     eval_ = sub.add_parser("eval", help="eval inspection / manual execution")
     eval_sub = eval_.add_subparsers(dest="subcmd", required=True)
     sp = eval_sub.add_parser("show", help="print eval payload to stdout")
@@ -247,6 +263,81 @@ async def _cmd_analyse(args: argparse.Namespace) -> int:
         raise CLIError(reason=f"analyst call failed: {result.error or 'unknown error'}")
     atomic_write(out_path, result.output)
     print(f"wrote {out_path}")
+    return 0
+
+
+def _arg_or_file(value: str) -> str:
+    """`@path` reads the file; anything else is literal text."""
+    if value.startswith("@"):
+        fp = Path(value[1:])
+        if not fp.is_file():
+            raise CLIError(reason=f"file not found: {fp}")
+        return fp.read_text(encoding="utf-8")
+    return value
+
+
+def _resolve_experiment_dir(project: Path, exp_id: str | None) -> Path:
+    root = project / ".dev" / "experiments"
+    if exp_id:
+        d = root / exp_id
+        if not (d / f"{exp_id}.md").is_file():
+            raise CLIError(reason=f"no experiment at {d}")
+        return d
+    candidates = sorted(d for d in root.glob("exp-*") if (d / f"{d.name}.md").is_file())
+    if not candidates:
+        raise CLIError(reason=f"no experiments under {root}")
+    return candidates[-1]
+
+
+async def _cmd_frink_start(args: argparse.Namespace) -> int:
+    from autopilot.orchestrator.frink import frink
+
+    project = _resolve_project_loose(args.project)
+    cfg = load_config(project_root=project)
+    outcome = await frink(
+        project,
+        cfg,
+        mode=args.mode,
+        objective=_arg_or_file(args.objective),
+        rubric=_arg_or_file(args.rubric),
+        hil_required=args.hil,
+        goal_id=args.goal_id,
+    )
+    exp = outcome.experiment
+    print(f"{exp.id} {exp.status} laps={len(exp.laps)} cost=${exp.cost_usd:.2f}")
+    return 0 if exp.status == "completed" else 1
+
+
+async def _cmd_frink_status(args: argparse.Namespace) -> int:
+    from autopilot.domain.experiment import Experiment
+
+    project = _resolve_project_loose(args.project)
+    exp = Experiment.load(_resolve_experiment_dir(project, args.exp_id))
+    print(f"id: {exp.id}")
+    print(f"mode: {exp.mode}")
+    print(f"status: {exp.status}")
+    print(f"cost_usd: {exp.cost_usd:.2f}")
+    print(f"laps: {len(exp.laps)}")
+    for lap in exp.laps[-5:]:
+        reason = (lap.verdict_reason or "").replace("\n", " ")[:120]
+        print(f"  {lap.id} [{lap.verdict}] {reason}")
+    if exp.summary:
+        print(f"summary: {exp.summary}")
+    return 0
+
+
+async def _cmd_frink_review(args: argparse.Namespace) -> int:
+    from autopilot.domain.experiment import Experiment
+    from autopilot.orchestrator.frink import _run_reviewer
+
+    project = _resolve_project_loose(args.project)
+    cfg = load_config(project_root=project)
+    exp = Experiment.load(_resolve_experiment_dir(project, args.exp_id))
+    await _run_reviewer(exp, cfg, project)
+    review = (exp._dir / "review.md") if exp._dir else None
+    if review is None or not review.is_file():
+        raise CLIError(reason="reviewer produced no review.md")
+    print(f"wrote {review}")
     return 0
 
 
@@ -756,6 +847,12 @@ async def _dispatch(args: argparse.Namespace) -> int:
             return await _cmd_task_run(args)
         case ("task", "retry"):
             return await _cmd_task_retry(args)
+        case ("frink", "start"):
+            return await _cmd_frink_start(args)
+        case ("frink", "status"):
+            return await _cmd_frink_status(args)
+        case ("frink", "review"):
+            return await _cmd_frink_review(args)
         case ("eval", "show"):
             return await _cmd_eval_show(args)
         case ("eval", "run"):

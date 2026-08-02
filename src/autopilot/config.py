@@ -69,6 +69,17 @@ class AutopilotConfig:
     synthesiser_model: str | None = None
     research_judge_model: str | None = None
 
+    # Frink (experiment loop)
+    frink_max_iterations: int = 20
+    frink_max_cost_per_run_usd: float = 25.0
+    frink_hil_timeout_sec: int = 3600
+    frink_hil_poll_sec: int = 5
+    # Deliberately NOT in _MODEL_FIELDS: AUTOPILOT_MODEL collapse would defeat
+    # the runner/stop-judge model-independence check (frink.py enforces !=).
+    frink_runner_model: str = "claude-sonnet-4-6"
+    frink_stop_judge_model: str = "claude-opus-4-7"
+    frink_reviewer_model: str = "claude-opus-4-7"
+
     # Paths (computed post-resolution, not user-set)
     project_root: Path = field(default_factory=Path.cwd)
 

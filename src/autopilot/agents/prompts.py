@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 from autopilot.domain.clock import now
+from autopilot.domain.experiment import Experiment, Lap
 from autopilot.domain.goal import Goal
 from autopilot.domain.research import Enquiry, ResearchRun
 from autopilot.domain.roadmap import Roadmap
@@ -728,5 +730,152 @@ def build_research_judge_prompt(run: ResearchRun, report_text: str) -> str:
         "",
         "## Gaps",
         "- <gap>: <why closing this would add concrete value>",
+    ]
+    return "\n".join(sections)
+
+
+# ---------- Frink (experiment loop) ----------
+
+
+def _kb_listing(exp: Experiment) -> str:
+    """File paths under the experiment's kb/, for on-demand Read by the runner."""
+    if exp._dir is None:
+        return "(no kb)"
+    kb = exp._dir / "kb"
+    if not kb.is_dir():
+        return "(no kb)"
+    lines: list[str] = []
+    for p in sorted(kb.rglob("*")):
+        if p.is_file() or p.is_symlink():
+            lines.append(str(p))
+    return "\n".join(lines) if lines else "(kb is empty)"
+
+
+def _prior_lap_summary(lap: Lap) -> str:
+    reason = (lap.verdict_reason or "").strip().replace("\n", " ")
+    return f"- {lap.id} [{lap.verdict}] spec: {lap.spec.strip()[:200]} | reason: {reason[:300]}"
+
+
+_FRINK_CLI_ATOMS = """\
+autopilot roadmap create/revise      — roadmap + goal files
+autopilot sprint prepare             — plan + critique + judge to approval
+autopilot sprint execute             — run the approved sprint
+autopilot sprint plan/critique/judge/evaluate — individual planning atoms
+autopilot task run <file>            — one task with retries
+autopilot eval show/run <ref>        — inspect / execute evals
+autopilot analyse [--topic]          — codebase analysis
+autopilot lisa --brief[-text]        — research loop
+autopilot ralph                      — full build loop"""
+
+
+def build_frink_runner_prompt(exp: Experiment, lap_id: str) -> str:
+    """Runner prompt: experiment + prior laps + kb listing + CLI atoms. Entities in."""
+    sections = [
+        f"Plan and execute one experiment lap ({lap_id}, mode: {exp.mode}).",
+        "",
+        _fence("OBJECTIVE", exp.objective.strip()),
+        "",
+        _fence("RUBRIC (frozen — you cannot change it)", exp.rubric.strip()),
+    ]
+    if exp.goal_id:
+        sections += ["", f"Linked goal: {exp.goal_id}"]
+    prior = exp.laps[-3:]
+    if prior:
+        sections += ["", _fence("PRIOR LAPS", "\n".join(_prior_lap_summary(x) for x in prior))]
+    sections += [
+        "",
+        _fence("KNOWLEDGE BASE (read on demand with the Read tool)", _kb_listing(exp)),
+        "",
+        _fence("AVAILABLE AUTOPILOT CLI COMMANDS", _FRINK_CLI_ATOMS),
+        "",
+        "You are on a dedicated git branch for this lap. Decide ONE thing to",
+        "try this lap, do it, and commit your changes. Collect the signals the",
+        "stop-judge will need to verdict the lap against the rubric.",
+        "",
+        "You may write scratch notes to kb/ad-hoc/ only; the rest of kb/ is",
+        "read-only for you.",
+        "",
+        "End your response with EXACTLY this structure:",
+        "",
+        "### SPEC",
+        "<one paragraph: what this lap tried, and why>",
+        "",
+        "### SIGNALS",
+        "```yaml",
+        "<mapping: the signals this lap produced, for the stop-judge>",
+        "```",
+    ]
+    return "\n".join(sections)
+
+
+def build_frink_stop_judge_prompt(exp: Experiment, spec: str, signals: dict[str, Any]) -> str:
+    """Stop-judge prompt: frozen rubric + lap spec/signals + prior verdicts."""
+    signals_text = yaml.safe_dump(signals, sort_keys=False) if signals else "(none)"
+    sections = [
+        "Verdict this experiment lap against the frozen rubric.",
+        "",
+        _fence("OBJECTIVE", exp.objective.strip()),
+        "",
+        _fence("RUBRIC (frozen)", exp.rubric.strip()),
+        "",
+        _fence("THIS LAP'S SPEC", spec.strip()),
+        "",
+        _fence("THIS LAP'S SIGNALS", signals_text.strip()),
+    ]
+    if exp.laps:
+        sections += [
+            "",
+            _fence("PRIOR LAPS", "\n".join(_prior_lap_summary(x) for x in exp.laps)),
+        ]
+    sections += [
+        "",
+        "Respond with EXACTLY:",
+        "",
+        "VERDICT: merge|discard|iterate",
+        "REASON: <one paragraph justifying against the rubric>",
+        "DONE: yes|no",
+        "",
+        "DONE: yes on a merge verdict means the experiment's objective is met",
+        "and the loop should exit. Omit nothing.",
+    ]
+    return "\n".join(sections)
+
+
+def build_frink_reviewer_prompt(exp: Experiment) -> str:
+    """Reviewer prompt: full experiment + laps + kb. Runs once, on terminal state."""
+    laps_text = "\n".join(_prior_lap_summary(x) for x in exp.laps) or "(no laps)"
+    sections = [
+        f"Review completed experiment {exp.id} (mode: {exp.mode}, status: {exp.status}).",
+        "",
+        _fence("OBJECTIVE", exp.objective.strip()),
+        "",
+        _fence("RUBRIC", exp.rubric.strip()),
+        "",
+        _fence("LAPS", laps_text),
+        "",
+        _fence("KNOWLEDGE BASE", _kb_listing(exp)),
+        "",
+        "Propose actionable improvements to the autopilot implementation,",
+        "agent prompts, skills, runbooks, or knowledge base — based ONLY on",
+        "what this experiment actually observed. Do not generalise beyond the",
+        "observations. Do not propose speculative changes. Rank proposals by",
+        "signal strength. A valid output is 'no actionable learnings.'",
+        "",
+        "Output format:",
+        "",
+        f"# Review — {exp.id}",
+        "",
+        "## Summary",
+        "<what happened, 2-3 sentences>",
+        "",
+        "## Proposals",
+        "",
+        "### P1 — <target>",
+        "**Change:** <what to edit>",
+        "**Evidence:** <which lap(s), which signals supported this>",
+        "**Signal strength:** low | medium | high",
+        "",
+        "## No-go (observations that did not yield a proposal)",
+        "<honest list of things that looked like patterns but had only one data point>",
     ]
     return "\n".join(sections)
