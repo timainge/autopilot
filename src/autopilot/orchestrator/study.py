@@ -159,11 +159,20 @@ async def _run_cell(cell: Cell, study: Study, cfg: AutopilotConfig, project: Pat
     cost_raw = signals.get("cost_usd", 0.0)
     cost = float(cost_raw) if isinstance(cost_raw, int | float) else 0.0
     cell.complete(signals, cost)
+    # A kill between these two writes loses this cell's cost from the study
+    # total (completed cells never re-run). Accepted drift — same class as
+    # Lisa's in-flight budget overshoot; per-cell cost stays on the cell.
     study.add_cost(cost)
 
 
-async def _run_analyst(study: Study, cfg: AutopilotConfig, project: Path) -> None:
-    """Analyst failure is logged, never raised — the cell data is the product."""
+async def run_analyst(study: Study, cfg: AutopilotConfig, project: Path) -> bool:
+    """Analyst failure is logged, never raised — the cell data is the product.
+
+    Returns True iff report.md was written. Refuses to analyse zero data.
+    """
+    if not any(c.status == "completed" for c in study.cells):
+        emit("study.analyst.error", study=study.id, error="no completed cells to analyse")
+        return False
     try:
         result = await run_agent(
             "study-analyst",
@@ -174,13 +183,14 @@ async def _run_analyst(study: Study, cfg: AutopilotConfig, project: Path) -> Non
         )
     except Exception as e:  # noqa: BLE001 — analyst must not mask the run outcome
         emit("study.analyst.error", study=study.id, error=str(e))
-        return
+        return False
+    study.add_cost(result.cost_usd)  # a failed agent call still incurred cost
     if not result.success:
         emit("study.analyst.error", study=study.id, error=result.error or "unknown")
-        return
+        return False
     assert study._dir is not None
     atomic_write(study._dir / "report.md", result.output)
-    study.add_cost(result.cost_usd)
+    return True
 
 
 async def study_run(project: Path, cfg: AutopilotConfig, spec_path: Path) -> StudyOutcome:
@@ -223,9 +233,10 @@ async def study_run(project: Path, cfg: AutopilotConfig, spec_path: Path) -> Stu
         study.stop("every cell failed")
         return StudyOutcome(study=study)
 
-    await _run_analyst(study, cfg, project)
+    reported = await run_analyst(study, cfg, project)
+    tail = "see report.md" if reported else "analyst failed — no report"
     if failed:
-        study.stop(f"{len(failed)}/{len(cells)} cells failed; see report.md")
+        study.stop(f"{len(failed)}/{len(cells)} cells failed; {tail}")
     else:
-        study.complete(f"all {len(cells)} cells completed; see report.md")
+        study.complete(f"all {len(cells)} cells completed; {tail}")
     return StudyOutcome(study=study)

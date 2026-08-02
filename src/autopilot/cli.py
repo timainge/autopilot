@@ -401,16 +401,14 @@ async def _cmd_study_status(args: argparse.Namespace) -> int:
 
 async def _cmd_study_report(args: argparse.Namespace) -> int:
     from autopilot.domain.study import Study
-    from autopilot.orchestrator.study import _run_analyst
+    from autopilot.orchestrator.study import run_analyst
 
     project = _resolve_project_loose(args.project)
     cfg = load_config(project_root=project)
     st = Study.load(_resolve_study_dir(project, args.study_id))
-    await _run_analyst(st, cfg, project)
-    report = (st._dir / "report.md") if st._dir else None
-    if report is None or not report.is_file():
+    if not await run_analyst(st, cfg, project):
         raise CLIError(reason="analyst produced no report.md")
-    print(f"wrote {report}")
+    print(f"wrote {st._dir / 'report.md'}")
     return 0
 
 

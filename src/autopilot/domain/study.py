@@ -86,6 +86,13 @@ class Cell:
 
     @persists
     def fail(self, error: str) -> None:
+        if self.status not in ("pending", "running"):
+            raise InvalidTransition(
+                entity_type="cell",
+                entity_id=self.id,
+                current_status=self.status,
+                attempted_transition="fail",
+            )
         self.status = "failed"
         self.error = error
         self.completed_at = now()
