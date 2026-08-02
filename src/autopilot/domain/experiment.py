@@ -119,6 +119,7 @@ class Experiment:
     rubric: str
     hil_required: bool = False
     goal_id: str | None = None
+    head_branch: str | None = None
     status: Literal["running", "completed", "stopped", "exhausted"] = "running"
     laps: list[Lap] = field(default_factory=list)
     summary: str | None = None
@@ -231,6 +232,7 @@ class Experiment:
             "rubric": self.rubric,
             "hil_required": self.hil_required,
             "goal_id": self.goal_id,
+            "head_branch": self.head_branch,
             "summary": self.summary,
             "cost_usd": self.cost_usd,
         }

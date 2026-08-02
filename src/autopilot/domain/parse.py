@@ -37,6 +37,7 @@ _EXPERIMENT_KEYS = {
     "rubric",
     "hil_required",
     "goal_id",
+    "head_branch",
     "summary",
     "cost_usd",
 }
@@ -603,6 +604,7 @@ def parse_experiment(text: str, path: Path | None = None):  # noqa: ANN201 — l
         rubric=str(rubric),
         hil_required=hil_raw,
         goal_id=fm.get("goal_id"),
+        head_branch=fm.get("head_branch"),
         status=fm["status"],
         summary=fm.get("summary"),
         cost_usd=float(fm.get("cost_usd", 0.0)),
