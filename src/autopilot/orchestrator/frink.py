@@ -157,10 +157,13 @@ async def _hil_approve(
             continue
         pending.unlink(missing_ok=True)
         if data["accepted"]:
-            return (
-                str(data.get("override_verdict", verdict)),
-                str(data.get("override_reason", reason)),
-            )
+            override = str(data.get("override_verdict", verdict))
+            if override not in ("merge", "discard", "iterate"):
+                # Typo'd override must not crash the loop after branch ops:
+                # keep the judge's proposal, note the rejected override.
+                emit("frink.hil.invalid_override", lap=lap.id, override=override)
+                return verdict, f"{reason} [invalid HIL override {override!r} ignored]"
+            return override, str(data.get("override_reason", reason))
         return "discard", str(data.get("override_reason", "rejected by human"))
     pending.unlink(missing_ok=True)
     emit("frink.hil.timeout", lap=lap.id, timeout_sec=cfg.frink_hil_timeout_sec)
@@ -182,7 +185,11 @@ async def _run_reviewer(exp: Experiment, cfg: AutopilotConfig, project: Path) ->
     """Always runs on terminal state. Reviewer failure is logged, never raised."""
     try:
         result = await run_agent(
-            "frink-reviewer", build_frink_reviewer_prompt(exp), cfg, cwd=project
+            "frink-reviewer",
+            build_frink_reviewer_prompt(exp),
+            cfg,
+            cwd=project,
+            model=cfg.frink_reviewer_model,
         )
     except Exception as e:  # noqa: BLE001 — reviewer must not mask the loop outcome
         emit("frink.reviewer.error", experiment=exp.id, error=str(e))
@@ -250,6 +257,7 @@ async def frink(
                 build_frink_runner_prompt(exp, lap_id),
                 cfg,
                 cwd=project,
+                model=cfg.frink_runner_model,
             )
             lap_cost = runner_result.cost_usd
             await gitops.commit_all_if_dirty(project, f"{exp.id}/{lap_id}: lap work")
@@ -274,6 +282,7 @@ async def frink(
                     build_frink_stop_judge_prompt(exp, spec, signals),
                     cfg,
                     cwd=project,
+                    model=cfg.frink_stop_judge_model,
                 )
                 lap_cost += judge_result.cost_usd
                 if not judge_result.success:
